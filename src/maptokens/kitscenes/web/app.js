@@ -61,7 +61,7 @@ function draw(){
    for(let y=Math.floor((center[1]-scale)/step)*step;y<center[1]+scale;y+=step)sg.push([center[0]-scale*w/h,y,0,center[0]+scale*w/h,y,0,grid]);
   }
   if(extras.rings&&p){
-   const ring=addColor([.43,.61,.72,.48]),step=niceDistance(scale/3),diagonal=Math.hypot(scale,scale*w/h),offset=Math.hypot(center[0]-p[1],center[1]-p[2]);
+   const ring=addColor([.43,.61,.72,.48]),step=10,diagonal=Math.hypot(scale,scale*w/h),offset=Math.hypot(center[0]-p[1],center[1]-p[2]);
    const start=Math.max(step,Math.ceil((offset-diagonal)/step)*step),limit=offset+diagonal;
    for(let r=start;r<=limit;r+=step){
     const count=Math.max(64,Math.min(512,Math.ceil(Math.PI*Math.sqrt(Math.max(1,r*pixels)/.2))));
@@ -247,6 +247,7 @@ function layerControls(){
  return `<table class="layer-table"><thead><tr><th>Element</th><th>Camera</th><th>HD map</th></tr></thead><tbody>${LAYER_CATEGORIES.map(([k,label])=>row(k,label,true)).join('')}</tbody></table><details><summary>Types</summary><table class="layer-table"><thead><tr><th>Type</th><th>Camera</th><th>HD map</th></tr></thead><tbody>${meta.groups.map(g=>row(g,g)).join('')}</tbody></table></details><div class="map-extras">${[['ego','Ego car'],['trajectory','Ego trajectory'],['fov','Camera FOV'],['grid','Grid'],['rings','Distance rings']].map(([key,label])=>`<label><input type="checkbox" data-extra="${key}" ${extras[key]?'checked':''}>${label}</label>`).join('')}</div>`;
 }
 function renderLayerPanels(){
+ $('#rings-toggle').checked=extras.rings;
  $('#layer-controls').innerHTML=layerControls();if(activeTab==='layers')$('#detail-body').innerHTML=layerControls();
  document.querySelectorAll('input[data-mixed]').forEach(el=>el.indeterminate=true);
 }
@@ -261,6 +262,7 @@ function setup(){
  $('#metadata-toggle').onclick=()=>{$('#inspector').hidden=!$('#inspector').hidden;$('#metadata-toggle').classList.toggle('active',!$('#inspector').hidden);};
  $('#layers-toggle').onclick=()=>$('#layer-panel').hidden=!$('#layer-panel').hidden;$('#layers-close').onclick=()=>$('#layer-panel').hidden=true;$('#layer-controls').onchange=layerChanged;$('#feature-close').onclick=()=>selectFeature(null);
  $('#download-toggle').onclick=()=>$('#download-popover').hidden=!$('#download-popover').hidden;
+ $('#rings-toggle').onchange=layerChanged;
  $('#overlay-toggle').onchange=()=>imageDirty=true;$('#whole-trip').onclick=fitTrack;$('#measure').onchange=()=>{mapDirty=true;$('#map-canvas').classList.toggle('measuring',$('#measure').checked);};$('#ruler-clear').onclick=()=>{rulerPoints=[];rulerHover=null;mapDirty=true;};
  for(const s of ['#search','#split','#ready-only','#hd-only'])$(s).addEventListener('input',()=>{const list=renderCatalog();if(meta&&!list.some(s=>s.id===meta.id)&&list.some(s=>s.ready))choose(list.find(s=>s.ready).id);});
  $('#play').onclick=()=>{if(meta)setPlaying(!playing);};$('#prev').onclick=()=>{setPlaying(false);setFrame(frame-1);};$('#next').onclick=()=>{setPlaying(false);setFrame(frame+1);};

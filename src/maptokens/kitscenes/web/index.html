@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KITScenes</title><link rel="stylesheet" href="/style.css?v=7"></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KITScenes</title><link rel="stylesheet" href="/style.css?v=8"></head>
 <body>
 <div id="app">
 <div id="toolbar">
@@ -31,7 +31,7 @@
   <div id="range-labels" aria-hidden="true"></div>
   <svg id="ego-car" viewBox="0 0 28 56" aria-label="Ego vehicle" hidden><path d="M8 2 Q14 0 20 2 L24 8 26 45 Q26 52 21 54 H7 Q2 52 2 45 L4 8Z" fill="#e8f0f4" stroke="#1d3449" stroke-width="2"/><path d="M7 14 21 14 23 24 5 24Z" fill="#294c65"/><path d="M5 26 23 26 22 40 6 40Z" fill="#8eb5ca"/><path d="M6 42 22 42 21 48 7 48Z" fill="#294c65"/><path d="M4 9 8 9M20 9 24 9" stroke="#d9ed8b" stroke-width="3"/></svg>
   <div class="pane-label"><span id="map-label">HD map</span> <span class="spacer"></span><label title="Keep the map attached to ego"><input id="follow" type="checkbox" checked>follow ego</label><button id="reset-map" title="Reset">↺</button><button id="whole-trip" title="Fit whole trip">trip</button></div>
-  <div class="ruler-controls"><label title="Click two points to measure planar distance"><input id="measure" type="checkbox">ruler</label><output id="ruler-value"></output><button id="ruler-clear" title="Clear ruler">×</button></div>
+  <div class="ruler-controls"><label title="Distance rings every 10 metres"><input id="rings-toggle" type="checkbox" data-extra="rings" checked>rings · 10 m</label><label title="Click two points to measure planar distance"><input id="measure" type="checkbox">ruler</label><output id="ruler-value"></output><button id="ruler-clear" title="Clear ruler">×</button></div>
   <div id="feature-inspector" hidden><div class="panel-heading"><span id="feature-title"></span><button id="feature-close" title="Clear selection">×</button></div><div id="feature-fields"></div></div>
   <div class="north">N ↑</div><div class="map-scale" id="map-scale">—</div>
   <div class="map-controls"><button id="zoom-in" title="Zoom in">+</button><button id="zoom-out" title="Zoom out">−</button></div>
@@ -64,5 +64,5 @@
 </div>
 <div id="toast" role="status"></div>
 <dialog id="help-dialog"><b>Controls</b><p>Space: play/pause · ←/→: frame · Home/End: first/last<br>Map: click line → select · ruler → two points · drag / wheel · double-click: follow<br>Camera: click line → select · drag / wheel · double-click: reset</p><button id="close-help">close</button></dialog>
-<script type="module" src="/app.js?v=7"></script>
+<script type="module" src="/app.js?v=8"></script>
 </body></html>
