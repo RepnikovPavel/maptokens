@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+from contextlib import ExitStack
 import fcntl
 import json
 import os
@@ -90,8 +91,14 @@ class Mirror:
             self.log('start',method=self.method,jobs=self.jobs,archives=len(pending),bytes=self.total_bytes)
             t=threading.Thread(target=self.reporter,daemon=True);t.start()
             try:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=self.jobs) as pool:
-                    futures={pool.submit(self.one,r):r for r in pending}
+                with ExitStack() as stack:
+                    disks=len(self.plan['roots'])
+                    if self.jobs<disks:
+                        pool=stack.enter_context(concurrent.futures.ThreadPoolExecutor(max_workers=self.jobs))
+                        pools=[pool]*disks
+                    else:
+                        pools=[stack.enter_context(concurrent.futures.ThreadPoolExecutor(max_workers=self.jobs//disks+(i<self.jobs%disks))) for i in range(disks)]
+                    futures={pools[r['disk']].submit(self.one,r):r for r in pending}
                     for future in concurrent.futures.as_completed(futures):
                         row=futures[future];sid=row['sequence_id']
                         try:
