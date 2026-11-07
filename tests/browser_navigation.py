@@ -19,6 +19,12 @@ def main():
         page.on('pageerror',lambda error:errors.append(str(error)))
         page.goto(args.url,wait_until='networkidle')
         page.wait_for_function('window.explorerDiagnostics?.().scene&&!explorerDiagnostics().loading')
+        # Registration exercises every source geometry type, including object
+        # layers which are intentionally disabled in the default view.
+        page.click('#layers-toggle')
+        for category in ('sign','light','pole','other'):
+            page.locator(f'#layer-controls [data-category={category}][data-view=camera]').check()
+        page.click('#layers-close')
         page.evaluate('async()=>{window.navigationSegments=(await(await fetch("/api/scenes/"+explorerDiagnostics().scene)).json()).segments}')
 
         def registered():
@@ -54,6 +60,7 @@ def main():
         page.locator('#camera-viewport').dispatch_event('wheel',dict(deltaY=-2000,clientX=pointer['x'],clientY=pointer['y'],bubbles=True,cancelable=True))
         page.wait_for_function('explorerDiagnostics().cameraView.zoom===6')
         zoomed=registered()
+        page.wait_for_function('document.querySelector("#camera-image").naturalWidth>1600')
         for key in ('width','height'):
             assert zoomed['buffer'][key]==before['buffer'][key],(before,zoomed)
         for got,expected,pixels in zip([(pointer['x']-zoomed['image']['x'])/zoomed['image']['w'],(pointer['y']-zoomed['image']['y'])/zoomed['image']['h']],anchor,[zoomed['image']['w'],zoomed['image']['h']]):
@@ -67,7 +74,8 @@ def main():
         stepped=registered()
         for result in (before,zoomed,panned,stepped):
             assert min(result['samples'])>0,result
-            for key in ('x','y','w','h'):assert abs(result['image'][key]-result['overlay'][key])<.02,result
+            assert abs(result['overlay']['w']-camera['width'])<.02,result
+            assert abs(result['overlay']['h']-camera['height'])<.02,result
             assert result['viewport'][2:]==[result['buffer']['width'],result['buffer']['height']],result
         assert stepped['view']==panned['view']
         lengths=[]

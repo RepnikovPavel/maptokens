@@ -112,11 +112,12 @@ This reads camera frames and calibration from the already downloaded `.tar.part`
 ## Browse
 
 - Search scene IDs and filter by split or readiness.
-- Play/pause with Space; step with Left/Right or the timeline.
-- Drag/scroll the HD map; double-click to follow ego again. The car glyph follows the published pose and heading. Its schematic 4.7 × 2.35 m footprint scales in world units, without minimum or maximum pixel sizes. `trip` fits the full route; clicking its trajectory selects the matching camera frame.
-- Zoom/pan the camera; double-click to reset. Zoom is anchored at the cursor. The image and map overlay share the same transform; the GPU buffer remains bounded independently of image zoom.
-- Toggle map classes in **Map layers**; camera overlays update together.
-- The `FOV` rays use camera intrinsics/extrinsics. The compact moment inspector reports source time, pose alignment, XYZ, heading, speed and derived acceleration/yaw rate. Missing HD maps are shown explicitly.
+- Play/pause with Space; step with Left/Right or the timeline. Playback loops by default; uncheck `loop` to stop at the last frame.
+- Drag/scroll the HD map. `follow ego` is checked by default and preserves a drag offset while the car moves; double-click to recenter. The car follows the published pose and heading, with a schematic 4.7 × 2.35 m footprint in world units. `trip` fits the full route.
+- Distance rings show metric radii around ego and adapt their spacing to zoom. Enable `ruler` and click two points to measure planar map distance; `×` clears the measurement.
+- Zoom/pan the camera; double-click to reset. Zoom is anchored at the cursor. Geometry is reprojected into a viewport-sized GPU buffer on every view change, keeping line thickness constant and avoiding raster magnification. A paused zoom loads the original camera image.
+- **layers** has independent camera and HD map checkboxes for categories and source types. Road geometry and road paintings are enabled by default; signs, lights, poles, other objects, trajectory, FOV and grid are initially hidden. Rings and the car are enabled. When enabled, clicking the trajectory selects its camera frame. FOV rays use camera intrinsics/extrinsics.
+- Click a line in either pane to highlight the full source feature and its original vertices in both panes. Its tags open in a floating panel without resizing the views. The compact moment inspector reports source time, pose alignment, XYZ, heading, speed and derived acceleration/yaw rate. Missing HD maps are shown explicitly.
 - Inspect original camera matrices in **Calibration**. The **files** tab groups metadata by topic/directory, searches filenames, pages through 100 files at a time, and previews text/YAML/JSON in place. Original files remain downloadable.
 - Copy a link to the scene/frame. New scenes appear automatically as downloads finish. A preview upgrades to the verified dataset view without resetting the selected frame.
 
@@ -132,6 +133,7 @@ node tests/test_view.mjs
 # Optional, against the deployed service (requires Playwright and Chromium):
 .venv/bin/python tests/browser_smoke.py --url http://SERVER_LAN_IP:8795 --browser /path/to/chromium --test-handoff
 .venv/bin/python tests/browser_navigation.py --url http://SERVER_LAN_IP:8795 --browser /path/to/chromium
+.venv/bin/python tests/browser_interactions.py --url http://SERVER_LAN_IP:8795 --browser /path/to/chromium
 ```
 
 Tests cover native wget/curl full-archive resume and SHA256 verification, archive retention, real HTTP range responses from a local fixture server, PAX tar headers, excluded sensor seeks, incorrect range rejection, interrupted-scene recovery, hash repair, exact frame/pose alignment with missing image numbers, and web API file access bounds. For runtime verification inspect `/api/health`, `/api/status`, and a completed scene. The browser exposes `explorerDiagnostics()` with WASM/WebGL readiness, render time, frame number and cache size.
