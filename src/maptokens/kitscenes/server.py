@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import json
 import math
+from decimal import Decimal
 import time
 import xml.etree.ElementTree as ET
 from functools import lru_cache
@@ -51,8 +52,8 @@ def map_data(path, origin):
     if not file.exists():
         return [], [], []
     root = ET.parse(file).getroot()
-    # KITScenes poses and map nodes use absolute UTM32N. Shift in float64
-    # before sending float32 to WebAssembly/WebGL to avoid metre-scale jitter.
+    # Map nodes are WGS84. Use the published origin with local poses,
+    # then shift in float64 before sending float32 geometry to the GPU.
     transform = Transformer.from_crs('EPSG:4326','EPSG:32632',always_xy=True)
     map_origin=read_json(path/'maps/origin.json',{})
     map_offset=np.zeros(3)
@@ -77,7 +78,7 @@ def map_data(path, origin):
             groups[key] = len(groups)
         group = groups[key]
         for a,b in zip(pts,pts[1:]):
-            segments.append(a+b+[group])
+            segments.append(a+b+[group,len(features)])
         features.append(dict(id=way.attrib['id'], kind=key, tags=tags, nodes=len(pts)))
     for rel in root.findall('relation'):
         features.append(dict(id=rel.attrib['id'], kind='relation', tags={t.attrib['k']:t.attrib['v'] for t in rel.findall('tag')}, members=[m.attrib for m in rel.findall('member')]))
@@ -118,7 +119,7 @@ class Store:
         timestamps = []
         for file in [path/f'timestamp.{camera}.txt',path/'timestamp.reference.txt']:
             if file.exists():
-                timestamps = [int(float(x)) if float(x)>1e12 else int(float(x)*1e9) for x in file.read_text().split()]
+                timestamps = [int(Decimal(x)) if Decimal(x)>10**12 else int(Decimal(x)*10**9) for x in file.read_text().split()]
                 break
         image_size = list(Image.open(path/camera/images[0]).size) if images else [1920,1200]
         image_indices = [int(Path(p).stem) for p in images]
@@ -133,11 +134,18 @@ class Store:
         local_pose = pose.copy()
         if len(pose):
             local_pose[:,1:4] -= origin
+        distance=float(np.linalg.norm(np.diff(pose[:,1:4],axis=0),axis=1).sum()) if len(pose)>1 else 0
+        acceleration=np.zeros(len(pose));yaw_rate=np.zeros(len(pose))
+        if len(pose)>1 and np.all(np.diff(pose[:,0])>0):
+            acceleration=np.gradient(speed/3.6,pose[:,0])
+            yaw=np.unwrap([math.atan2(rotation(p[4:])[1,0],rotation(p[4:])[0,0]) for p in pose])
+            yaw_rate=np.rad2deg(np.gradient(yaw,pose[:,0]))
         inventory = read_json(path/'.complete.json',{}).get('inventory',[])
         return dict(id=sid, split=self.rows[sid]['split'], camera=camera, images=images,
-                    timestamps=[str(round(t*1e9)) for t in frame_ts], times=frame_ts,
+                    timestamps=[str(timestamps[i]) if i<len(timestamps) else str(round(t*1e9)) for i,t in zip(image_indices,frame_ts)], times=frame_ts,
                     poses=local_pose.tolist(), pose_indices=pose_indices, speeds=speed.tolist(),
-                    origin=origin.tolist(), image_size=image_size, calibration=calib, camera_calibration=entry,
+                    origin=origin.tolist(), image_size=image_size, calibration=calib,
+                    motion=dict(distance_m=distance,acceleration_mps2=acceleration.tolist(),yaw_rate_dps=yaw_rate.tolist()), camera_calibration=entry,
                     segments=segs, groups=groups, features=features,
                     files=[str(p.relative_to(path)) for p in path.rglob('*') if p.is_file() and not p.name.startswith('.')],
                     availability=dict(poses=bool(len(pose)), maps=bool(segs),

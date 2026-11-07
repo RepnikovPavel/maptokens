@@ -157,3 +157,28 @@ def test_full_mirror_native_resume_sha_and_archive_retention(tmp_path,range_serv
     assert not (archive.with_suffix('')/'lidar_top').exists()
     assert Mirror(state,method,1).verified(row)
     mirror=Mirror(state,method,1);mirror.run();assert mirror.skipped==1
+
+
+def test_map_projection_origin_and_feature_identity(tmp_path):
+    import numpy as np
+    from pyproj import Transformer
+    from maptokens.kitscenes.server import map_data
+    folder=tmp_path/'maps';folder.mkdir()
+    atomic_json(folder/'origin.json',dict(latitude=49.0,longitude=8.0))
+    (folder/'map.osm').write_text('<osm><node id="1" lat="49" lon="8"><tag k="ele" v="2"/></node><node id="2" lat="49.00001" lon="8"><tag k="ele" v="2"/></node><way id="3"><nd ref="1"/><nd ref="2"/><tag k="type" v="line_thin"/><tag k="subtype" v="solid"/></way></osm>')
+    segments,groups,features=map_data(tmp_path,np.array([0.,0.,2.]))
+    assert np.allclose(segments[0][:3],[0,0,0])
+    assert .9<segments[0][4]<1.2
+    assert features[segments[0][7]]['id']=='3'
+    assert groups==['line_thin:solid']
+
+
+def test_exact_source_timestamp_and_motion(tmp_path):
+    state=fixture_scene(tmp_path)
+    path=tmp_path/'disk/data/val'/SID/'timestamp.reference.txt'
+    path.write_text('1000000000000000001\n1000000000100000001\n1000000000200000001\n')
+    with TestClient(create_app(state)) as client:
+        m=client.get(f'/api/scenes/{SID}').json()
+        assert m['timestamps'][0]=='1000000000000000001'
+        assert m['motion']['distance_m']==2
+        assert len(m['motion']['acceleration_mps2'])==3

@@ -105,9 +105,10 @@ When deploying changed source, stop and remove only these two project containers
 
 - Search scene IDs and filter by split or readiness.
 - Play/pause with Space; step with Left/Right or the timeline.
-- Drag/scroll the HD map; double-click to follow ego again.
+- Drag/scroll the HD map; double-click to follow ego again. The car glyph follows the published pose and heading. `trip` fits the full route; clicking its trajectory selects the matching camera frame.
 - Zoom/pan the camera; double-click to reset.
 - Toggle map classes in **Map layers**; camera overlays update together.
+- The `FOV` rays use camera intrinsics/extrinsics. The compact moment inspector reports source time, pose alignment, XYZ, heading, speed and derived acceleration/yaw rate. Missing HD maps are shown explicitly.
 - Inspect original camera matrices in **Calibration** and all metadata in **Files & labels**.
 - Copy a link to the scene/frame. New scenes appear automatically as downloads finish.
 
