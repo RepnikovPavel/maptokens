@@ -25,6 +25,10 @@ def main():
     run.add_argument('--jobs', type=int, default=16)
     bench = sub.add_parser('benchmark', help='Compare Python, curl and wget ranges on this server')
     bench.add_argument('--state', required=True)
+    preview = sub.add_parser('prepare-preview', help='Prepare camera and map from a downloading full tar')
+    preview.add_argument('--state',required=True)
+    preview.add_argument('--scene',required=True)
+    preview.add_argument('--tail-mib',type=int,default=32)
     serve = sub.add_parser('serve')
     serve.add_argument('--state', required=True)
     serve.add_argument('--host', default='0.0.0.0')
@@ -52,6 +56,9 @@ def main():
             if method == 'hf':
                 p.error('hf supports full archives only')
             Runner(args.state,method,args.jobs).run()
+    elif args.command == 'prepare-preview':
+        from .preview import prepare_preview
+        print(json.dumps(prepare_preview(args.state,args.scene,args.tail_mib),indent=2))
     elif args.command == 'serve':
         import uvicorn
         from .server import create_app

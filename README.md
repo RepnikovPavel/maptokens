@@ -101,6 +101,14 @@ Durable state contains `plan.json`, the pinned CSV manifest, `allocations.json`,
 
 When deploying changed source, stop and remove only these two project containers, rebuild, then run the script again with the same state/data mounts. State and downloaded files are preserved. No existing container is replaced implicitly.
 
+## Preview a mapped scene before its full archive finishes
+
+```sh
+kitscenes prepare-preview --state /storage/kitscenes-full --scene SCENE_UUID
+```
+
+This reads camera frames and calibration from the already downloaded `.tar.part` prefix and retrieves a bounded tar tail (32 MiB by default) for the HD map, map origin, poses and timestamps. It writes a separate `.preview.json`, with full archive SHA256 explicitly pending; it never marks the archive complete. The regular full downloader continues, verifies the publisher checksum and replaces the preview receipt after extraction. Tail bytes are cached outside the repository. Increase `--tail-mib` if this scene's map is outside the default tail window.
+
 ## Browse
 
 - Search scene IDs and filter by split or readiness.

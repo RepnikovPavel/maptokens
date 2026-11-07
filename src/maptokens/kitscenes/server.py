@@ -98,17 +98,22 @@ class Store:
         allocations = read_json(self.state/'allocations.json',{})
         disk = allocations.get(sid,{}).get('disk',row['disk'])
         planned = Path(self.plan['roots'][disk])/'data'/row['split']/sid
-        if not (planned/'.complete.json').exists():
+        if not any((planned/name).exists() for name in ('.complete.json','.preview.json')):
             for root in self.plan['roots']:
                 existing=Path(root)/'data'/row['split']/sid
-                if (existing/'.complete.json').exists():return existing
+                if any((existing/name).exists() for name in ('.complete.json','.preview.json')):return existing
         return planned
 
-    @lru_cache(maxsize=8)
     def scene(self, sid):
+        path=self.path(sid)
+        receipt=path/'.complete.json'
+        if not receipt.exists():receipt=path/'.preview.json'
+        if not receipt.exists():raise HTTPException(409,'Scene is still downloading')
+        return self._scene(sid,receipt.name,receipt.stat().st_mtime_ns)
+
+    @lru_cache(maxsize=8)
+    def _scene(self, sid, receipt_name, receipt_version):
         path = self.path(sid)
-        if not (path/'.complete.json').exists():
-            raise HTTPException(409,'Scene is still downloading')
         camera = next((c for c in self.plan['cameras'] if (path/c).is_dir()),None)
         images = sorted(p.name for p in (path/camera).iterdir() if p.suffix.lower() in ('.jpg','.jpeg','.png')) if camera else []
         pose = poses(path/'poses.txt')
@@ -140,7 +145,8 @@ class Store:
             acceleration=np.gradient(speed/3.6,pose[:,0])
             yaw=np.unwrap([math.atan2(rotation(p[4:])[1,0],rotation(p[4:])[0,0]) for p in pose])
             yaw_rate=np.rad2deg(np.gradient(yaw,pose[:,0]))
-        inventory = read_json(path/'.complete.json',{}).get('inventory',[])
+        receipt=read_json(path/receipt_name,{})
+        inventory = receipt.get('inventory',[])
         return dict(id=sid, split=self.rows[sid]['split'], camera=camera, images=images,
                     timestamps=[str(timestamps[i]) if i<len(timestamps) else str(round(t*1e9)) for i,t in zip(image_indices,frame_ts)], times=frame_ts,
                     poses=local_pose.tolist(), pose_indices=pose_indices, speeds=speed.tolist(),
@@ -151,7 +157,7 @@ class Store:
                     availability=dict(poses=bool(len(pose)), maps=bool(segs),
                                       can=[p for p in inventory if 'can' in p.lower()],
                                       gnss=[p for p in inventory if any(t in p.lower() for t in ('gnss','gps','ins.'))]),
-                    receipt=read_json(path/'.complete.json',{}))
+                    receipt=receipt)
 
 
 def create_app(state):
@@ -174,7 +180,9 @@ def create_app(state):
     def scenes():
         allocations = read_json(store.state/'allocations.json',{})
         return [dict(id=sid, split=r['split'], disk=allocations.get(sid,{}).get('disk',r['disk']), archive_bytes=r['size'],
-                     ready=(store.path(sid)/'.complete.json').exists()) for sid,r in store.rows.items()]
+                     ready=any((store.path(sid)/name).exists() for name in ('.complete.json','.preview.json')),
+                     maps=(store.path(sid)/'maps/map.osm').exists(),
+                     preview=not (store.path(sid)/'.complete.json').exists() and (store.path(sid)/'.preview.json').exists()) for sid,r in store.rows.items()]
 
     @app.get('/api/scenes/{sid}')
     def scene(sid:str):

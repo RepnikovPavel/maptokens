@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KITScenes</title><link rel="stylesheet" href="/style.css?v=3"></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KITScenes</title><link rel="stylesheet" href="/style.css?v=4"></head>
 <body>
 <div id="app">
 <div id="toolbar">
@@ -9,6 +9,7 @@
  <select id="scene-select" aria-label="Scene"><option>No downloaded scenes</option></select>
  <button id="prev-scene" title="Previous scene">◂</button><button id="next-scene" title="Next scene">▸</button>
  <label title="Show downloaded scenes only"><input id="ready-only" type="checkbox" checked>ready</label>
+ <label title="Scenes with a prepared HD map"><input id="hd-only" type="checkbox" checked>HD</label>
  <span id="ready-count" class="muted">0/1006</span>
  <span class="spacer"></span>
  <label><input id="frustum-toggle" type="checkbox" checked>FOV</label>
@@ -57,5 +58,5 @@
 </div>
 <div id="toast" role="status"></div>
 <dialog id="help-dialog"><b>Controls</b><p>Space: play/pause · ←/→: frame · Home/End: first/last<br>Map: click track → frame · drag / wheel · double-click: follow<br>Camera: drag / wheel · double-click: reset</p><button id="close-help">close</button></dialog>
-<script type="module" src="/app.js?v=3"></script>
+<script type="module" src="/app.js?v=4"></script>
 </body></html>

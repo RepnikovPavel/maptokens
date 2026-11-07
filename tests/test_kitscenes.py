@@ -182,3 +182,36 @@ def test_exact_source_timestamp_and_motion(tmp_path):
         assert m['timestamps'][0]=='1000000000000000001'
         assert m['motion']['distance_m']==2
         assert len(m['motion']['acceleration_mps2'])==3
+
+
+def test_prepare_partial_preview_and_upgrade_receipt(tmp_path):
+    from maptokens.kitscenes.preview import prepare_preview
+    jpeg=io.BytesIO();Image.new('RGB',(640,400),'gray').save(jpeg,format='JPEG')
+    body=io.BytesIO()
+    files=[('calibration/calib.json',b'{}'),('camera_ring_front/0000000000.jpg',jpeg.getvalue()),
+           ('lidar_top/big.bin',b'x'*(2*1024*1024)),('maps/map.osm',b'<osm/>'),
+           ('maps/origin.json',b'{"latitude":49,"longitude":8}'),
+           ('poses.txt',b'1 0 0 0 0 0 0 1\n'),('timestamp.reference.txt',b'1000000000\n')]
+    with tarfile.open(fileobj=body,mode='w') as tf:
+        for name,data in files:
+            m=tarfile.TarInfo(SID+'/'+name);m.size=len(data);tf.addfile(m,io.BytesIO(data))
+    payload=body.getvalue();state=tmp_path/'state';root=tmp_path/'disk';archive=root/f'data/val/{SID}.tar';archive.parent.mkdir(parents=True)
+    archive.with_suffix('.tar.part').write_bytes(payload[:16384])
+    row=dict(sequence_id=SID,split='val',size=len(payload),disk=0,archive_path=f'data/val/{SID}.tar',archive_sha256=hashlib.sha256(payload).hexdigest())
+    plan=dict(roots=[str(root)],scenes=[row],cameras=['camera_ring_front'],metadata=True,include=[],exclude=[],revision='test',mode='full',archive_bytes_per_disk=[len(payload)])
+    atomic_json(state/'plan.json',plan)
+    start=(len(payload)-1024*1024)//512*512;cache=state/'previews'/SID;cache.mkdir(parents=True)
+    (cache/'tail.bin').write_bytes(payload[start:])
+    atomic_json(cache/'tail.json',dict(start=start,size=len(payload)-start,revision='test',archive_sha256=row['archive_sha256']))
+    result=prepare_preview(state,SID,1)
+    assert result['images']==1 and not result['archive_verified']
+    out=archive.with_suffix('')
+    assert (out/'.preview.json').exists() and not (out/'.complete.json').exists()
+    assert (out/'maps/map.osm').read_bytes()==b'<osm/>'
+    assert not (out/'lidar_top').exists()
+    with TestClient(create_app(state)) as client:
+        assert client.get('/api/scenes').json()[0]['preview']
+        assert client.get(f'/api/scenes/{SID}').json()['receipt']['mode']=='preview'
+        atomic_json(out/'.complete.json',dict(mode='full',inventory_complete=True))
+        assert not client.get('/api/scenes').json()[0]['preview']
+        assert client.get(f'/api/scenes/{SID}').json()['receipt']['mode']=='full'

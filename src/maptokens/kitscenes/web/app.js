@@ -126,8 +126,8 @@ async function setFrame(i){
 function setPlaying(value){playing=value;$('#play').textContent=playing?'Ⅱ':'▶';lastTick=performance.now();}
 function renderCatalog(){
  const q=$('#search').value.toLowerCase(),split=$('#split').value,ready=$('#ready-only').checked;
- const filtered=scenes.filter(s=>(!ready||s.ready)&&(!split||s.split===split)&&s.id.includes(q));
- const select=$('#scene-select');select.innerHTML=filtered.length?filtered.map(s=>`<option value="${s.id}" ${meta?.id===s.id?'selected':''} ${s.ready?'':'disabled'}>${s.id} · ${s.split}${s.ready?'':' · pending'}</option>`).join(''):'<option value="">No ready scenes</option>';
+ const filtered=scenes.filter(s=>(!ready||s.ready)&&(!$('#hd-only').checked||s.maps)&&(!split||s.split===split)&&s.id.includes(q));
+ const select=$('#scene-select');select.innerHTML=filtered.length?filtered.map(s=>`<option value="${s.id}" ${meta?.id===s.id?'selected':''} ${s.ready?'':'disabled'}>${s.id} · ${s.split}${s.maps?' · HD':''}${s.preview?' · preview':''}${s.ready?'':' · pending'}</option>`).join(''):'<option value="">No ready scenes</option>';
  $('#ready-count').textContent=`${scenes.filter(s=>s.ready).length}/${scenes.length}`;return filtered;
 }
 async function choose(sid,initial=0){
@@ -146,7 +146,7 @@ function renderDetails(){
  if(!meta)return;let html='';
  if(activeTab==='overview'){
  const a=meta.availability;
- html=`<div class="facts"><div><label>RECORDING</label><strong>${fmt(meta.times.at(-1)-meta.times[0])}</strong></div><div><label>FRONT FRAMES</label><strong>${meta.images.length}</strong></div><div><label>MAP FEATURES</label><strong>${meta.features.length}</strong></div><div><label>PATH</label><strong>${meta.motion?.distance_m.toFixed(1)||'—'} m</strong></div><div><label>CAN FILES</label><strong>${a.can.length?'yes':'—'}</strong></div><div><label>GNSS FILES</label><strong>${a.gnss.length?'yes':'—'}</strong></div></div>`;
+ html=`<div class="facts"><div><label>RECORDING</label><strong>${fmt(meta.times.at(-1)-meta.times[0])}</strong></div><div><label>FRONT FRAMES</label><strong>${meta.images.length}</strong></div><div><label>MAP FEATURES</label><strong>${meta.features.length}</strong></div><div><label>PATH</label><strong>${meta.motion?.distance_m.toFixed(1)||'—'} m</strong></div><div><label>CAN FILES</label><strong>${a.can.length?'yes':'—'}</strong></div><div><label>GNSS FILES</label><strong>${a.gnss.length?'yes':'—'}</strong></div></div>${meta.receipt.mode==='preview'?'<p class="note">Preview · full archive SHA256 pending</p>':''}`;
  }else if(activeTab==='layers'){
  html=`<div class="legend">${meta.groups.map((g,i)=>`<label><input type="checkbox" data-layer="${i}" ${hidden.has(i)?'':'checked'}><span class="swatch" style="background:${layerColor(g)}"></span>${esc(g)}</label>`).join('')}</div>`;
  }else if(activeTab==='calibration'){
@@ -170,7 +170,7 @@ async function refresh(){
  $('#revision').textContent=`REV ${status.plan.revision.slice(0,12)}`;
  const splits=[...new Set(list.map(s=>s.split))].sort();if($('#split').options.length===1)for(const s of splits){const o=new Option(s,s);$('#split').add(o);}
  renderCatalog();
- if(!meta&&n){const params=new URLSearchParams(location.search),id=params.get('scene');await choose(list.find(s=>s.id===id&&s.ready)?.id||list.find(s=>s.ready).id,Number(params.get('frame')||0));}
+ if(!meta&&n){const params=new URLSearchParams(location.search),id=params.get('scene');if(list.some(s=>s.id===id&&s.ready&&!s.maps))$('#hd-only').checked=false;await choose(list.find(s=>s.id===id&&s.ready)?.id||list.find(s=>s.ready&&s.maps)?.id||list.find(s=>s.ready).id,Number(params.get('frame')||0));}
  }catch(e){$('#download-state').textContent='Server connection interrupted';}
 }
 
@@ -211,7 +211,7 @@ function setup(){
  $('#metadata-toggle').onclick=()=>{$('#inspector').hidden=!$('#inspector').hidden;$('#metadata-toggle').classList.toggle('active',!$('#inspector').hidden);};
  $('#download-toggle').onclick=()=>$('#download-popover').hidden=!$('#download-popover').hidden;
  $('#overlay-toggle').onchange=()=>imageDirty=true;$('#frustum-toggle').onchange=()=>mapDirty=true;$('#whole-trip').onclick=fitTrack;
- for(const s of ['#search','#split','#ready-only'])$(s).addEventListener('input',()=>{const list=renderCatalog();if(meta&&!list.some(s=>s.id===meta.id)&&list.some(s=>s.ready))choose(list.find(s=>s.ready).id);});
+ for(const s of ['#search','#split','#ready-only','#hd-only'])$(s).addEventListener('input',()=>{const list=renderCatalog();if(meta&&!list.some(s=>s.id===meta.id)&&list.some(s=>s.ready))choose(list.find(s=>s.ready).id);});
  $('#play').onclick=()=>{if(meta)setPlaying(!playing);};$('#prev').onclick=()=>{setPlaying(false);setFrame(frame-1);};$('#next').onclick=()=>{setPlaying(false);setFrame(frame+1);};
  $('#scrub').oninput=e=>{setPlaying(false);setFrame(Number(e.target.value));};
  $('.tabs').onclick=e=>{if(e.target.dataset.tab){activeTab=e.target.dataset.tab;document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b===e.target));renderDetails();}};
