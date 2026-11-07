@@ -8,6 +8,7 @@ set -euo pipefail
 PORT=${PORT:-8795}
 JOBS=${JOBS:-16}
 METHOD=${METHOD:-auto}
+PREVIEW_SCENES_PER_SPLIT=${PREVIEW_SCENES_PER_SPLIT:-2}
 mkdir -p "$DATA_A" "$DATA_B" "$STATE_DIR"
 docker build -f docker/Dockerfile -t maptokens-kitscenes .
 mounts=(-v "$DATA_A:/data/a" -v "$DATA_B:/data/b" -v "$STATE_DIR:/state")
@@ -21,7 +22,7 @@ if [[ ! -f "$STATE_DIR/benchmark.json" ]] && python3 -c 'import json,sys; sys.ex
 fi
 # Existing containers must be explicitly stopped before replacing a deployment.
 if ! docker container inspect kitscenes-download >/dev/null 2>&1; then
-  docker run -d --name kitscenes-download --restart on-failure:10 "${uid[@]}" "${mounts[@]}" "${auth[@]}" --log-opt max-size=20m --log-opt max-file=3 maptokens-kitscenes run --state /state --jobs "$JOBS" --method "$METHOD"
+  docker run -d --name kitscenes-download --restart on-failure:10 "${uid[@]}" "${mounts[@]}" "${auth[@]}" --log-opt max-size=20m --log-opt max-file=3 maptokens-kitscenes run --state /state --jobs "$JOBS" --method "$METHOD" --preview-scenes-per-split "$PREVIEW_SCENES_PER_SPLIT"
 fi
 if ! docker container inspect kitscenes-web >/dev/null 2>&1; then
   docker run -d --name kitscenes-web --restart unless-stopped "${uid[@]}" -v "$DATA_A:/data/a:ro" -v "$DATA_B:/data/b:ro" -v "$STATE_DIR:/state:ro" -p "$PORT:8795" --log-opt max-size=20m --log-opt max-file=3 maptokens-kitscenes serve --state /state

@@ -17,11 +17,26 @@ from .download import atomic_json, safe_relative, selected, _hash_file
 from .transport import REPO, session, token, resolve_url
 
 
+def download_order(rows, pending, preview_scenes_per_split=2):
+    """Start a stable small review set, then use LPT for the remaining work.
+
+    The review set is chosen from the complete manifest so a resume does not
+    repeatedly select another batch of small scenes and starve larger files.
+    Disk assignments remain exactly as written in the balanced plan.
+    """
+    preview_ids=set()
+    for split in ('train','val'):
+        candidates=sorted((r for r in rows if r['split']==split),key=lambda r:(r['size'],r['sequence_id']))
+        preview_ids.update(r['sequence_id'] for r in candidates[:preview_scenes_per_split])
+    return sorted(pending,key=lambda r:(r['sequence_id'] not in preview_ids,-r['size'],r['sequence_id']))
+
+
 class Mirror:
-    def __init__(self,state,method='wget',jobs=8):
+    def __init__(self,state,method='wget',jobs=8,preview_scenes_per_split=2):
         self.state=Path(state)
         self.plan=json.loads((self.state/'plan.json').read_text())
         self.method,self.jobs=method,jobs
+        self.preview_scenes_per_split=preview_scenes_per_split
         self.lock=threading.Lock()
         self.stop=threading.Event()
         self.active,self.errors={},{}
@@ -83,11 +98,7 @@ class Mirror:
                 if self.verified(row) and self.archive(row).with_suffix('').joinpath('.complete.json').exists():
                     self.skipped+=1;self.completed_bytes+=row['size']
                 else:pending.append(row)
-            # Make one mapped validation scene available early, then stream large
-            # archives first for stable sustained throughput on both HDDs.
-            pending.sort(key=lambda r:-r['size'])
-            preview=min((r for r in pending if r['split']=='val'),key=lambda r:r['size'],default=None)
-            if preview:pending.remove(preview);pending.insert(0,preview)
+            pending=download_order(self.plan['scenes'],pending,self.preview_scenes_per_split)
             self.log('start',method=self.method,jobs=self.jobs,archives=len(pending),bytes=self.total_bytes)
             t=threading.Thread(target=self.reporter,daemon=True);t.start()
             try:

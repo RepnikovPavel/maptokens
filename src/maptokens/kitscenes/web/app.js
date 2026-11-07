@@ -1,3 +1,4 @@
+import {drawingBufferSize,zoomAt,egoSize,EGO_LENGTH_M,EGO_WIDTH_M} from './view.js';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => `${String(Math.floor(Math.max(0,t)/60)).padStart(2,'0')}:${(Math.max(0,t)%60).toFixed(1).padStart(4,'0')}`;
@@ -9,12 +10,15 @@ let wasm, scenes=[], meta=null, frame=0, playing=false, loading=false, loadToken
 let center=[0,0], scale=70, mapDirty=true, imageDirty=true, lastTick=0, durationMs=100, lastRenderMs=0;
 let mapGL, camGL, bufferCache=new Map(), fetching=new Map();
 let zoom=1, pan=[0,0];
+let fileRequest=0,filePreviewRequest=0,fileOffset=0,fileTimer;
 
 class Lines {
   constructor(canvas, clear) {
     this.canvas=canvas; this.clear=clear;
     const gl=this.gl=canvas.getContext('webgl2',{alpha:!clear,antialias:true,preserveDrawingBuffer:false});
     if(!gl)throw new Error('WebGL2 is unavailable. Enable graphics acceleration in your browser.');
+    const limit=gl.getParameter(gl.MAX_RENDERBUFFER_SIZE),viewport=gl.getParameter(gl.MAX_VIEWPORT_DIMS);
+    this.maxWidth=Math.min(limit,viewport[0]);this.maxHeight=Math.min(limit,viewport[1]);
     const shader=(type,src)=>{const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s;};
     const p=this.program=gl.createProgram();
     gl.attachShader(p,shader(gl.VERTEX_SHADER,`#version 300 es
@@ -32,11 +36,14 @@ class Lines {
     gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
   }
   draw(segments, matrix, colors, thickness=1.6) {
-    const t=performance.now(), gl=this.gl, rect=this.canvas.getBoundingClientRect(), dpr=Math.min(devicePixelRatio,2);
-    if(!rect.width||!rect.height)return;
-    const w=Math.round(rect.width*dpr),h=Math.round(rect.height*dpr);
+    const t=performance.now(),gl=this.gl,width=this.canvas.clientWidth,height=this.canvas.clientHeight;
+    if(!width||!height)return;
+    // CSS zoom transforms the image and overlay together. Allocating from the
+    // transformed bounding rectangle can exceed GPU limits and shift the map.
+    const [w,h]=drawingBufferSize(width,height,devicePixelRatio,this.maxWidth,this.maxHeight);
     if(this.canvas.width!==w||this.canvas.height!==h){this.canvas.width=w;this.canvas.height=h;}
-    gl.viewport(0,0,w,h);gl.clearColor(...(this.clear||[0,0,0,0]));gl.clear(gl.COLOR_BUFFER_BIT);
+    const actualWidth=gl.drawingBufferWidth,actualHeight=gl.drawingBufferHeight;
+    gl.viewport(0,0,actualWidth,actualHeight);gl.clearColor(...(this.clear||[0,0,0,0]));gl.clear(gl.COLOR_BUFFER_BIT);
     if(!wasm||!segments.length)return;
     const n=Math.min(200000,segments.length), mem=wasm.memory.buffer;
     const input=new Float32Array(mem,wasm.points(),n*6),m=new Float32Array(mem,wasm.matrix(),16);
@@ -44,7 +51,7 @@ class Lines {
     const projected=new Float32Array(mem,wasm.result(),n*4),data=new Float32Array(n*8);
     for(let i=0;i<n;i++){data.set(projected.subarray(i*4,i*4+4),i*8);data.set(colors[segments[i][6]]||[.8,.8,.8,1],i*8+4);}
     gl.useProgram(this.program);gl.bindVertexArray(this.vao);gl.bindBuffer(gl.ARRAY_BUFFER,this.buf);gl.bufferData(gl.ARRAY_BUFFER,data,gl.DYNAMIC_DRAW);
-    gl.uniform2f(gl.getUniformLocation(this.program,'viewport'),w,h);gl.uniform1f(gl.getUniformLocation(this.program,'thickness'),thickness*dpr);
+    gl.uniform2f(gl.getUniformLocation(this.program,'viewport'),actualWidth,actualHeight);gl.uniform1f(gl.getUniformLocation(this.program,'thickness'),thickness*actualWidth/width);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP,0,4,n);
     lastRenderMs=performance.now()-t;$('#render-state').textContent=`${lastRenderMs.toFixed(1)} ms`;
   }
@@ -86,7 +93,7 @@ function draw(){
   if(p){
    const r=rotation(p.slice(4,8)),yaw=Math.atan2(r[3],r[0]),pixels=rect.height/(2*scale);
    car.style.left=(50+(p[1]-center[0])*pixels/rect.width*100)+'%';car.style.top=(50-(p[2]-center[1])*pixels/rect.height*100)+'%';
-   car.style.height=Math.max(30,Math.min(80,4.7*pixels))+'px';car.style.width=Math.max(15,Math.min(40,2.35*pixels))+'px';
+   const [carWidth,carLength]=egoSize(pixels);car.style.width=carWidth+'px';car.style.height=carLength+'px';
    car.style.transform=`translate(-50%,-50%) rotate(${90-yaw*180/Math.PI}deg)`;
    const cal=meta.camera_calibration;
    if($('#frustum-toggle').checked&&cal.intrinsics&&cal.T_to_reference){
@@ -146,16 +153,38 @@ function renderDetails(){
  if(!meta)return;let html='';
  if(activeTab==='overview'){
  const a=meta.availability;
- html=`<div class="facts"><div><label>RECORDING</label><strong>${fmt(meta.times.at(-1)-meta.times[0])}</strong></div><div><label>FRONT FRAMES</label><strong>${meta.images.length}</strong></div><div><label>MAP FEATURES</label><strong>${meta.features.length}</strong></div><div><label>PATH</label><strong>${meta.motion?.distance_m.toFixed(1)||'—'} m</strong></div><div><label>CAN FILES</label><strong>${a.can.length?'yes':'—'}</strong></div><div><label>GNSS FILES</label><strong>${a.gnss.length?'yes':'—'}</strong></div></div>${meta.receipt.mode==='preview'?'<p class="note">Preview · full archive SHA256 pending</p>':''}`;
+ html=`<div class="facts"><div><label>RECORDING</label><strong>${fmt(meta.times.at(-1)-meta.times[0])}</strong></div><div><label>FRONT FRAMES</label><strong>${meta.images.length}</strong></div><div><label>MAP FEATURES</label><strong>${meta.features.length}</strong></div><div><label>PATH</label><strong>${meta.motion?.distance_m.toFixed(1)||'—'} m</strong></div><div><label>CAN FILES</label><strong>${a.can_file_count||'—'}</strong></div><div><label>GNSS FILES</label><strong>${a.gnss_file_count||'—'}</strong></div></div>${meta.receipt.mode==='preview'?'<p class="note">Preview · full archive SHA256 pending</p>':''}`;
  }else if(activeTab==='layers'){
  html=`<div class="legend">${meta.groups.map((g,i)=>`<label><input type="checkbox" data-layer="${i}" ${hidden.has(i)?'':'checked'}><span class="swatch" style="background:${layerColor(g)}"></span>${esc(g)}</label>`).join('')}</div>`;
  }else if(activeTab==='calibration'){
  html=`<pre>${esc(JSON.stringify(meta.camera_calibration,null,2))}</pre>`;
  }else{
- const files=meta.files.filter(p=>!p.startsWith(meta.camera+'/'));
- html=`<p class="note">${files.length} files · ${meta.images.length} images</p>${files.map(p=>`<div class="file-row"><a href="/api/scenes/${meta.id}/file?path=${encodeURIComponent(p)}" target="_blank" rel="noopener">${esc(p)}</a></div>`).join('')}<details><summary>Archive receipt & integrity</summary><pre>${esc(JSON.stringify({...meta.receipt,inventory:undefined},null,2))}</pre></details><details><summary>Map feature tags / relations</summary><pre>${esc(JSON.stringify(meta.features,null,2))}</pre></details>`;
+ html=`<div class="file-tools"><select id="file-group" aria-label="Metadata directory"><option value="">all metadata · ${meta.metadata_file_count}</option>${Object.entries(meta.file_groups).filter(([g])=>g).map(([g,n])=>`<option value="${esc(g)}/" ${g==='maps'?'selected':''}>${esc(g)} · ${n}</option>`).join('')}</select><input id="file-query" placeholder="filter files" aria-label="Filter metadata filenames"></div><div id="file-list"></div><div class="file-pages"><button id="files-prev" disabled>‹</button><span id="file-page"></span><button id="files-next" disabled>›</button></div><div id="file-preview"></div><details><summary>Archive receipt & integrity</summary><pre>${esc(JSON.stringify(meta.receipt,null,2))}</pre></details>`;
  }
  $('#detail-body').innerHTML=html;
+ if(activeTab==='files')loadFiles(0);
+}
+async function loadFiles(offset=0){
+ const sid=meta?.id,group=$('#file-group'),query=$('#file-query');if(!group||!query)return;
+ const ticket=++fileRequest,params=new URLSearchParams({prefix:group.value,q:query.value,offset,limit:100});
+ $('#files-prev').disabled=$('#files-next').disabled=true;
+ try{
+  const page=await api(`/api/scenes/${sid}/files?${params}`);
+  if(ticket!==fileRequest||meta?.id!==sid||activeTab!=='files'||!$('#file-list'))return;
+  fileOffset=page.offset;
+  $('#file-list').innerHTML=page.paths.map(p=>`<div class="file-row"><a data-view-file="${esc(p)}" href="/api/scenes/${sid}/file?path=${encodeURIComponent(p)}" target="_blank" rel="noopener">${esc(p)}</a></div>`).join('');
+  $('#file-page').textContent=page.total?`${page.offset+1}–${Math.min(page.total,page.offset+page.paths.length)} / ${page.total}`:'0 files';
+  $('#files-prev').disabled=offset===0;$('#files-next').disabled=offset+page.paths.length>=page.total;
+ }catch(e){if(ticket===fileRequest&&$('#file-list'))$('#file-list').textContent=e.message;}
+}
+async function openMetadataFile(path){
+ const sid=meta?.id,ticket=++filePreviewRequest;
+ try{
+  const data=await api(`/api/scenes/${sid}/text?${new URLSearchParams({path})}`);
+  if(ticket!==filePreviewRequest||meta?.id!==sid||activeTab!=='files'||!$('#file-preview'))return;
+  $('#file-preview').innerHTML=`<a href="/api/scenes/${sid}/file?path=${encodeURIComponent(path)}" target="_blank" rel="noopener">${esc(path)} ↗</a>${data.truncated?'<span class="muted"> · first 256 KiB</span>':''}<pre>${esc(data.text)}</pre>`;
+  $('#file-preview').scrollIntoView({block:'nearest'});
+ }catch(e){toast(e.message);}
 }
 async function refresh(){
  try{
@@ -170,6 +199,11 @@ async function refresh(){
  $('#revision').textContent=`REV ${status.plan.revision.slice(0,12)}`;
  const splits=[...new Set(list.map(s=>s.split))].sort();if($('#split').options.length===1)for(const s of splits){const o=new Option(s,s);$('#split').add(o);}
  renderCatalog();
+ const current=list.find(s=>s.id===meta?.id);
+ if(current?.ready&&current.view_version!==meta.receipt_version){
+  const sid=meta.id,updated=await api(`/api/scenes/${sid}`);
+  if(meta.id===sid){meta=updated;renderDetails();await setFrame(frame);}
+ }
  if(!meta&&n){const params=new URLSearchParams(location.search),id=params.get('scene');if(list.some(s=>s.id===id&&s.ready&&!s.maps))$('#hd-only').checked=false;await choose(list.find(s=>s.id===id&&s.ready)?.id||list.find(s=>s.ready&&s.maps)?.id||list.find(s=>s.ready).id,Number(params.get('frame')||0));}
  }catch(e){$('#download-state').textContent='Server connection interrupted';}
 }
@@ -215,7 +249,9 @@ function setup(){
  $('#play').onclick=()=>{if(meta)setPlaying(!playing);};$('#prev').onclick=()=>{setPlaying(false);setFrame(frame-1);};$('#next').onclick=()=>{setPlaying(false);setFrame(frame+1);};
  $('#scrub').oninput=e=>{setPlaying(false);setFrame(Number(e.target.value));};
  $('.tabs').onclick=e=>{if(e.target.dataset.tab){activeTab=e.target.dataset.tab;document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b===e.target));renderDetails();}};
- $('#detail-body').onchange=e=>{if(e.target.dataset.layer!==undefined){const i=Number(e.target.dataset.layer);e.target.checked?hidden.delete(i):hidden.add(i);mapDirty=imageDirty=true;}};
+ $('#detail-body').onchange=e=>{if(e.target.dataset.layer!==undefined){const i=Number(e.target.dataset.layer);e.target.checked?hidden.delete(i):hidden.add(i);mapDirty=imageDirty=true;}else if(e.target.id==='file-group')loadFiles(0);};
+ $('#detail-body').oninput=e=>{if(e.target.id==='file-query'){clearTimeout(fileTimer);++fileRequest;fileTimer=setTimeout(()=>loadFiles(0),250);}};
+ $('#detail-body').onclick=e=>{if(e.target.id==='files-prev')loadFiles(Math.max(0,fileOffset-100));else if(e.target.id==='files-next')loadFiles(fileOffset+100);else if(e.target.dataset.viewFile&&!e.ctrlKey&&!e.metaKey){e.preventDefault();openMetadataFile(e.target.dataset.viewFile);}};
  $('#follow').onclick=()=>mapFollow(!follow);$('#reset-map').onclick=()=>{scale=70;mapFollow(true);};
  $('#zoom-in').onclick=()=>{scale=Math.max(8,scale/1.3);mapDirty=true;};$('#zoom-out').onclick=()=>{scale=Math.min(2000,scale*1.3);mapDirty=true;};
  const map=$('#map-canvas');let drag=null;
@@ -226,7 +262,7 @@ function setup(){
  const cam=$('#camera-viewport');let cdrag=null;
  cam.onpointerdown=e=>{cdrag=[e.clientX,e.clientY,...pan];cam.setPointerCapture(e.pointerId);};cam.onpointermove=e=>{if(cdrag){pan=[cdrag[2]+e.clientX-cdrag[0],cdrag[3]+e.clientY-cdrag[1]];cameraTransform();}};
  cam.onpointerup=cam.onpointercancel=()=>cdrag=null;cam.ondblclick=()=>{zoom=1;pan=[0,0];cameraTransform();};
- cam.addEventListener('wheel',e=>{e.preventDefault();zoom=Math.max(1,Math.min(6,zoom*Math.exp(-e.deltaY*.001)));cameraTransform();},{passive:false});
+ cam.addEventListener('wheel',e=>{e.preventDefault();const r=cam.getBoundingClientRect(),view=zoomAt(zoom,pan,[e.clientX-r.left-r.width/2,e.clientY-r.top-r.height/2],zoom*Math.exp(-e.deltaY*.001));zoom=view.zoom;pan=view.pan;cameraTransform();},{passive:false});
  $('#fullscreen').onclick=()=>{if(document.fullscreenElement)document.exitFullscreen();else cam.requestFullscreen().catch(()=>toast('Fullscreen unavailable'));};
  $('#copy-link').onclick=async()=>{const url=`${location.origin}/?scene=${meta?.id||''}&frame=${frame}`;try{await navigator.clipboard.writeText(url);toast('Scene link copied');}catch{const input=document.createElement('textarea');input.value=url;document.body.append(input);input.select();document.execCommand('copy');input.remove();toast('Scene link copied');}};
  $('#help').onclick=()=>$('#help-dialog').showModal();$('#close-help').onclick=()=>$('#help-dialog').close();
@@ -243,6 +279,6 @@ setup();
 try{
  const r=await fetch('/project.wasm');const module=await WebAssembly.instantiate(await r.arrayBuffer());wasm=module.instance.exports;
  mapGL=new Lines($('#map-canvas'),[.055,.09,.073,1]);camGL=new Lines($('#camera-overlay'),null);
- $('#render-state').textContent='GPU ready';window.explorerDiagnostics=()=>({wasm:!!wasm,webgl:!!mapGL,scene:meta?.id,frame,renderMs:lastRenderMs,cacheFrames:bufferCache.size,playing,loading,mapSegments:meta?.segments.length,center,scale,pose:poseNow()?.slice(1,4),posePixels:poseNow()?{x:$('#map-canvas').clientWidth/2+(poseNow()[1]-center[0])*$('#map-canvas').clientHeight/(2*scale),y:$('#map-canvas').clientHeight/2-(poseNow()[2]-center[1])*$('#map-canvas').clientHeight/(2*scale)}:null});
+ $('#render-state').textContent='GPU ready';window.explorerDiagnostics=()=>({wasm:!!wasm,webgl:!!mapGL,scene:meta?.id,frame,renderMs:lastRenderMs,cacheFrames:bufferCache.size,playing,loading,mapSegments:meta?.segments.length,center,scale,pose:poseNow()?.slice(1,4),cameraView:{zoom,pan},egoSizeMeters:[EGO_WIDTH_M,EGO_LENGTH_M],cameraProjection:meta?cameraMatrix():null,cameraBuffer:camGL?{width:camGL.gl.drawingBufferWidth,height:camGL.gl.drawingBufferHeight,cssWidth:camGL.canvas.clientWidth,cssHeight:camGL.canvas.clientHeight}:null,posePixels:poseNow()?{x:$('#map-canvas').clientWidth/2+(poseNow()[1]-center[0])*$('#map-canvas').clientHeight/(2*scale),y:$('#map-canvas').clientHeight/2-(poseNow()[2]-center[1])*$('#map-canvas').clientHeight/(2*scale)}:null});
 }catch(e){$('#render-state').textContent='Graphics unavailable';toast(e.message);}
 await refresh();setInterval(refresh,10000);requestAnimationFrame(tick);

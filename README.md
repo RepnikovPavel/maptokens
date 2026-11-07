@@ -27,7 +27,7 @@ kitscenes plan --state /storage/kitscenes-full \
 kitscenes run --state /storage/kitscenes-full --method wget --jobs 16
 ```
 
-Every original archive is retained, including every camera, LiDAR, radar and all published annotations. The pinned 1006-archive manifest is about 4.576 TB. LPT placement assigns about 2.288 TB to each HDD (the planned difference is 23 MB). There is no remote tar indexing in full mode. Native wget/curl byte resume and HF's native full-file download are supported (`--method hf`). The default full-mode transport is wget. Verification uses the publisher's full-archive SHA256; successful checks have durable receipts. Existing completed archives are reused.
+Every original archive is retained, including every camera, LiDAR, radar and all published annotations. The pinned 1006-archive manifest is about 4.576 TB. LPT placement assigns about 2.288 TB to each HDD (the planned difference is 23 MB). There is no remote tar indexing in full mode. Native wget/curl byte resume and HF's native full-file download are supported (`--method hf`). The default full-mode transport is wget. The two smallest scenes from each of train/val are scheduled first for map review; the remaining archives follow largest-first order. Set `--preview-scenes-per-split 0` for largest-first order throughout. Resumes keep the same review set and retain every partial archive. Verification uses the publisher's full-archive SHA256; successful checks have durable receipts. Existing completed archives are reused.
 
 Only the front camera and metadata are additionally extracted for browsing, avoiding a second full dataset copy. Other modalities remain available in the original tars. Full download progress includes transferred bytes, recent/average MB/s, remaining-time estimate, per-archive phase, errors and available disk space. A failed run can resume the same plan without downloading verified archives again.
 
@@ -82,7 +82,7 @@ export PORT=8795 JOBS=16
 ./scripts/run-server.sh --mode full
 ```
 
-The script builds the image and creates two containers: `kitscenes-download` (restart on failure) and `kitscenes-web` (restart unless stopped). It mounts both HDD directories and durable state. The browser service receives read-only dataset/state mounts. Open `http://SERVER_LAN_IP:8795` from your workstation. Deployment paths and hostnames are parameters; no personal server configuration is embedded in the source.
+The script builds the image and creates two containers: `kitscenes-download` (restart on failure) and `kitscenes-web` (restart unless stopped). It mounts both HDD directories and durable state. The browser service receives read-only dataset/state mounts. `PREVIEW_SCENES_PER_SPLIT` configures the initial review set (default 2). Open `http://SERVER_LAN_IP:8795` from your workstation. Deployment paths and hostnames are parameters; no personal server configuration is embedded in the source.
 
 The web service is intended for the requested LAN access. Use your existing reverse proxy/access controls if exposing it beyond that network.
 
@@ -113,12 +113,12 @@ This reads camera frames and calibration from the already downloaded `.tar.part`
 
 - Search scene IDs and filter by split or readiness.
 - Play/pause with Space; step with Left/Right or the timeline.
-- Drag/scroll the HD map; double-click to follow ego again. The car glyph follows the published pose and heading. `trip` fits the full route; clicking its trajectory selects the matching camera frame.
-- Zoom/pan the camera; double-click to reset.
+- Drag/scroll the HD map; double-click to follow ego again. The car glyph follows the published pose and heading. Its schematic 4.7 × 2.35 m footprint scales in world units, without minimum or maximum pixel sizes. `trip` fits the full route; clicking its trajectory selects the matching camera frame.
+- Zoom/pan the camera; double-click to reset. Zoom is anchored at the cursor. The image and map overlay share the same transform; the GPU buffer remains bounded independently of image zoom.
 - Toggle map classes in **Map layers**; camera overlays update together.
 - The `FOV` rays use camera intrinsics/extrinsics. The compact moment inspector reports source time, pose alignment, XYZ, heading, speed and derived acceleration/yaw rate. Missing HD maps are shown explicitly.
-- Inspect original camera matrices in **Calibration** and all metadata in **Files & labels**.
-- Copy a link to the scene/frame. New scenes appear automatically as downloads finish.
+- Inspect original camera matrices in **Calibration**. The **files** tab groups metadata by topic/directory, searches filenames, pages through 100 files at a time, and previews text/YAML/JSON in place. Original files remain downloadable.
+- Copy a link to the scene/frame. New scenes appear automatically as downloads finish. A preview upgrades to the verified dataset view without resetting the selected frame.
 
 Camera overlays use the published pinhole calibration and closest available ego pose at each camera timestamp. Geometry behind the near plane is clipped in WebAssembly. This is a geometric inspection view; it does not estimate occlusions from images or LiDAR. Coordinates are transformed using the published map origin and shifted in float64 before GPU projection to avoid precision jitter. Original files remain accessible through a traversal-checked, read-only endpoint.
 
@@ -128,6 +128,10 @@ Camera overlays use the published pinhole calibration and closest available ego 
 .venv/bin/pip install pytest httpx
 .venv/bin/pytest -q
 node --check src/maptokens/kitscenes/web/app.js
+node tests/test_view.mjs
+# Optional, against the deployed service (requires Playwright and Chromium):
+.venv/bin/python tests/browser_smoke.py --url http://SERVER_LAN_IP:8795 --browser /path/to/chromium --test-handoff
+.venv/bin/python tests/browser_navigation.py --url http://SERVER_LAN_IP:8795 --browser /path/to/chromium
 ```
 
 Tests cover native wget/curl full-archive resume and SHA256 verification, archive retention, real HTTP range responses from a local fixture server, PAX tar headers, excluded sensor seeks, incorrect range rejection, interrupted-scene recovery, hash repair, exact frame/pose alignment with missing image numbers, and web API file access bounds. For runtime verification inspect `/api/health`, `/api/status`, and a completed scene. The browser exposes `explorerDiagnostics()` with WASM/WebGL readiness, render time, frame number and cache size.

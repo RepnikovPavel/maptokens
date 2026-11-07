@@ -215,3 +215,53 @@ def test_prepare_partial_preview_and_upgrade_receipt(tmp_path):
         atomic_json(out/'.complete.json',dict(mode='full',inventory_complete=True))
         assert not client.get('/api/scenes').json()[0]['preview']
         assert client.get(f'/api/scenes/{SID}').json()['receipt']['mode']=='full'
+
+
+def test_metadata_paging_and_bounded_text_preview(tmp_path):
+    state=fixture_scene(tmp_path)
+    root=tmp_path/'disk/data/val'/SID
+    topic=root/'async/gnss/pvt';topic.mkdir(parents=True)
+    paths=[]
+    for i in range(1005):
+        name=f'async/gnss/pvt/{i:010d}.yaml'
+        (root/name).write_text(f'sample: {i}\n')
+        paths.append(name)
+    (topic/'pending.yaml.part').write_text('incomplete')
+    (root/'.private').mkdir();(root/'.private/hidden.txt').write_text('hidden')
+    (root/'long.txt').write_text('x'*(300*1024))
+    atomic_json(root/'.complete.json',dict(inventory=paths))
+    with TestClient(create_app(state)) as client:
+        response=client.get(f'/api/scenes/{SID}');m=response.json()
+        assert len(response.content)<10000
+        assert m['file_groups']['async/gnss/pvt']==1005
+        assert isinstance(m['groups'],list) and isinstance(m['file_groups'],dict)
+        assert m['availability']['gnss_file_count']==1005
+        assert 'inventory' not in m['receipt'] and len(m['files'])<=100
+        page=client.get(f'/api/scenes/{SID}/files',params=dict(prefix='async/gnss/pvt/',offset=100,limit=100)).json()
+        assert page['total']==1005 and page['paths']==paths[100:200]
+        last=client.get(f'/api/scenes/{SID}/files',params=dict(prefix='async/gnss/pvt/',offset=1000,limit=100)).json()
+        assert last['paths']==paths[1000:]
+        found=client.get(f'/api/scenes/{SID}/files',params=dict(q='0000000042.yaml')).json()
+        assert found['paths']==[paths[42]]
+        assert client.get(f'/api/scenes/{SID}/files?limit=501').status_code==422
+        text=client.get(f'/api/scenes/{SID}/text',params={'path':paths[42]}).json()
+        assert text['text']=='sample: 42\n' and not text['truncated']
+        text=client.get(f'/api/scenes/{SID}/text',params={'path':'long.txt'}).json()
+        assert len(text['text'])==256*1024 and text['truncated']
+        assert client.get(f'/api/scenes/{SID}/text',params={'path':'../secret.txt'}).status_code==404
+        assert client.get(f'/api/scenes/{SID}/text',params={'path':'.private/hidden.txt'}).status_code==404
+        assert client.get(f'/api/scenes/{SID}/text',params={'path':'camera_ring_front/0000000000.jpg'}).status_code==415
+
+
+def test_preview_download_order_is_stable_across_resume():
+    from maptokens.kitscenes.mirror import download_order
+    rows=[dict(sequence_id=f'{split}{i}',split=split,size=i*100,disk=i%2)
+          for split in ('train','val','test-e2e') for i in range(1,5)]
+    order=download_order(rows,rows,2)
+    assert {r['sequence_id'] for r in order[:4]}=={'train1','train2','val1','val2'}
+    assert order[4]['size']==400
+    pending=[r for r in rows if r['sequence_id'] not in {'train1','train2','val1','val2'}]
+    resumed=download_order(rows,pending,2)
+    assert [r['size'] for r in resumed]==sorted((r['size'] for r in pending),reverse=True)
+    assert download_order(rows,rows,0)[0]['size']==400
+    assert {r['sequence_id']:r['disk'] for r in order}=={r['sequence_id']:r['disk'] for r in rows}

@@ -5,6 +5,7 @@ import io
 import json
 import math
 from decimal import Decimal
+from collections import Counter
 import time
 import xml.etree.ElementTree as ET
 from functools import lru_cache
@@ -112,6 +113,22 @@ class Store:
         return self._scene(sid,receipt.name,receipt.stat().st_mtime_ns)
 
     @lru_cache(maxsize=8)
+    def file_inventory(self, sid, receipt_version):
+        path=self.path(sid)
+        return tuple(sorted(str(p.relative_to(path)) for p in path.rglob('*')
+                            if p.is_file() and not any(part.startswith('.') for part in p.relative_to(path).parts)
+                            and not p.name.endswith(('.part','.preview-part','.tmp'))))
+
+    def metadata_files(self, sid):
+        meta=self.scene(sid)
+        return tuple(p for p in self.file_inventory(sid,int(meta['receipt_version']))
+                     if not self.is_camera_image(p))
+
+    def is_camera_image(self, path):
+        p=Path(path)
+        return p.suffix.lower() in ('.jpg','.jpeg','.png') and any(c in p.parts for c in self.plan['cameras'])
+
+    @lru_cache(maxsize=8)
     def _scene(self, sid, receipt_name, receipt_version):
         path = self.path(sid)
         camera = next((c for c in self.plan['cameras'] if (path/c).is_dir()),None)
@@ -147,17 +164,28 @@ class Store:
             yaw_rate=np.rad2deg(np.gradient(yaw,pose[:,0]))
         receipt=read_json(path/receipt_name,{})
         inventory = receipt.get('inventory',[])
+        files=self.file_inventory(sid,receipt_version)
+        metadata=[p for p in files if not self.is_camera_image(p)]
+        can=[p for p in inventory if 'can' in p.lower()]
+        gnss=[p for p in inventory if any(t in p.lower() for t in ('gnss','gps','ins.'))]
+        file_groups=dict(sorted(Counter(str(Path(p).parent) if Path(p).parent!=Path('.') else '' for p in metadata).items()))
+        # Enumerate thousands of source messages only in the paginated endpoint.
+        # The first frame needs map geometry and summary counts, not repeated
+        # copies of the archive inventory and every GNSS filename.
+        receipt={k:v for k,v in receipt.items() if k!='inventory'}
         return dict(id=sid, split=self.rows[sid]['split'], camera=camera, images=images,
                     timestamps=[str(timestamps[i]) if i<len(timestamps) else str(round(t*1e9)) for i,t in zip(image_indices,frame_ts)], times=frame_ts,
                     poses=local_pose.tolist(), pose_indices=pose_indices, speeds=speed.tolist(),
                     origin=origin.tolist(), image_size=image_size, calibration=calib,
                     motion=dict(distance_m=distance,acceleration_mps2=acceleration.tolist(),yaw_rate_dps=yaw_rate.tolist()), camera_calibration=entry,
                     segments=segs, groups=groups, features=features,
-                    files=[str(p.relative_to(path)) for p in path.rglob('*') if p.is_file() and not p.name.startswith('.')],
+                    # Keep a bounded first page for older browser clients.
+                    files=metadata[:100],file_count=len(files),metadata_file_count=len(metadata),file_groups=file_groups,
                     availability=dict(poses=bool(len(pose)), maps=bool(segs),
-                                      can=[p for p in inventory if 'can' in p.lower()],
-                                      gnss=[p for p in inventory if any(t in p.lower() for t in ('gnss','gps','ins.'))]),
-                    receipt=receipt)
+                                      can=sorted(set(str(Path(p).parent) for p in can)),
+                                      gnss=sorted(set(str(Path(p).parent) for p in gnss)),
+                                      can_file_count=len(can),gnss_file_count=len(gnss)),
+                    receipt=receipt,receipt_version=str(receipt_version))
 
 
 def create_app(state):
@@ -179,14 +207,28 @@ def create_app(state):
     @app.get('/api/scenes')
     def scenes():
         allocations = read_json(store.state/'allocations.json',{})
-        return [dict(id=sid, split=r['split'], disk=allocations.get(sid,{}).get('disk',r['disk']), archive_bytes=r['size'],
-                     ready=any((store.path(sid)/name).exists() for name in ('.complete.json','.preview.json')),
-                     maps=(store.path(sid)/'maps/map.osm').exists(),
-                     preview=not (store.path(sid)/'.complete.json').exists() and (store.path(sid)/'.preview.json').exists()) for sid,r in store.rows.items()]
+        result=[]
+        for sid,row in store.rows.items():
+            path=store.path(sid)
+            complete=path/'.complete.json'
+            receipt=complete if complete.exists() else path/'.preview.json'
+            ready=receipt.exists()
+            result.append(dict(id=sid,split=row['split'],disk=allocations.get(sid,{}).get('disk',row['disk']),
+                               archive_bytes=row['size'],ready=ready,maps=(path/'maps/map.osm').exists(),
+                               preview=ready and receipt.name=='.preview.json',
+                               view_version=str(receipt.stat().st_mtime_ns) if ready else None))
+        return result
 
     @app.get('/api/scenes/{sid}')
     def scene(sid:str):
         return store.scene(sid)
+
+    @app.get('/api/scenes/{sid}/files')
+    def files(sid:str,prefix:str='',q:str='',offset:int=Query(0,ge=0),limit:int=Query(100,ge=1,le=500)):
+        paths=store.metadata_files(sid)
+        if prefix:paths=tuple(p for p in paths if p.startswith(prefix))
+        if q:paths=tuple(p for p in paths if q.casefold() in p.casefold())
+        return dict(paths=paths[offset:offset+limit],total=len(paths),offset=offset,limit=limit)
 
     @lru_cache(maxsize=96)
     def thumbnail(sid, frame, width):
@@ -205,12 +247,25 @@ def create_app(state):
     def image(sid:str,frame:int,width:int=Query(1280,ge=320,le=4096)):
         return Response(thumbnail(sid,frame,width), media_type='image/jpeg',headers={'Cache-Control':'private, max-age=86400'})
 
-    @app.get('/api/scenes/{sid}/file')
-    def file(sid:str,path:str):
+    def resolve_file(sid,path):
         base = store.path(sid).resolve()
         target = (base/path).resolve()
         if not target.is_relative_to(base) or not target.is_file() or any(p.startswith('.') for p in Path(path).parts):
             raise HTTPException(404)
+        return target
+
+    @app.get('/api/scenes/{sid}/text')
+    def text(sid:str,path:str):
+        target=resolve_file(sid,path)
+        if target.suffix.lower() not in ('.json','.yaml','.yml','.txt','.csv','.osm','.xml'):
+            raise HTTPException(415,'Use the original file endpoint for binary data')
+        limit=256*1024
+        with target.open('rb') as f:data=f.read(limit+1)
+        return dict(path=path,text=data[:limit].decode('utf-8',errors='replace'),truncated=len(data)>limit)
+
+    @app.get('/api/scenes/{sid}/file')
+    def file(sid:str,path:str):
+        target=resolve_file(sid,path)
         return FileResponse(target)
 
     app.mount('/',StaticFiles(directory=WEB,html=True),name='web')
