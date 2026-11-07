@@ -123,6 +123,7 @@ This reads camera frames and calibration from the already downloaded `.tar.part`
 - Click a line in either pane to highlight the full source feature and its original vertices in both panes. Its tags open in a floating panel without resizing the views. The compact moment inspector reports source time, pose alignment, XYZ, heading, speed and derived acceleration/yaw rate. Missing HD maps are shown explicitly.
 - Inspect original camera matrices in **Calibration**. The **files** tab groups metadata by topic/directory, searches filenames, pages through 100 files at a time, and previews text/YAML/JSON in place. Original files remain downloadable.
 - Copy a link to the scene/frame. New scenes appear automatically as downloads finish. A preview upgrades to the verified dataset view without resetting the selected frame.
+- The bottom strip shows the next HD trip's download bar and estimated countdown, retained archive bytes downloaded, and fully prepared scenes as separate percentages. Byte progress includes resumed partial files and excludes archives outside the selected plan. A complete download is not counted as ready until verification and extraction finish. Next-trip ETA uses each transfer's recent 120-second rate plus verification/extraction rates measured from completed scenes; it is an estimate and updates as network conditions change. Zero-speed, stale, paused and disconnected states stop the countdown. The browser polls every 5 seconds and ticks the countdown each second. Progress inspection reads local files and existing transfer logs; it does not restart the downloader or fetch dataset data.
 
 Camera overlays use the published pinhole calibration and closest available ego pose at each camera timestamp. Geometry behind the near plane is clipped in WebAssembly. This is a geometric inspection view; it does not estimate occlusions from images or LiDAR. Coordinates are transformed using the published map origin and shifted in float64 before GPU projection to avoid precision jitter. Original files remain accessible through a traversal-checked, read-only endpoint.
 
@@ -137,6 +138,7 @@ node tests/test_view.mjs
 .venv/bin/python tests/browser_smoke.py --url http://SERVER_LAN_IP:8795 --browser /path/to/chromium --test-handoff
 .venv/bin/python tests/browser_navigation.py --url http://SERVER_LAN_IP:8795 --browser /path/to/chromium
 .venv/bin/python tests/browser_interactions.py --url http://SERVER_LAN_IP:8795 --browser /path/to/chromium
+.venv/bin/python tests/browser_progress.py --url http://SERVER_LAN_IP:8795 --browser /path/to/chromium
 ```
 
 Tests cover native wget/curl full-archive resume and SHA256 verification, archive retention, real HTTP range responses from a local fixture server, PAX tar headers, excluded sensor seeks, incorrect range rejection, interrupted-scene recovery, hash repair, exact frame/pose alignment with missing image numbers, and web API file access bounds. For runtime verification inspect `/api/health`, `/api/status`, and a completed scene. The browser exposes `explorerDiagnostics()` with WASM/WebGL readiness, render time, frame number and cache size.

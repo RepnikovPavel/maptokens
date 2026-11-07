@@ -18,6 +18,8 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from pyproj import Transformer
 
+from .progress import DownloadProgress
+
 WEB = Path(__file__).parent/'web'
 
 
@@ -91,6 +93,7 @@ class Store:
         self.state = Path(state)
         self.plan = read_json(self.state/'plan.json')
         self.rows = {r['sequence_id']:r for r in self.plan['scenes']}
+        self.progress = DownloadProgress(self.state,self.plan) if self.plan['mode']=='full' else None
 
     def path(self, sid):
         if sid not in self.rows:
@@ -202,6 +205,7 @@ def create_app(state):
         s['stale'] = s.get('running',False) and time.time()-s.get('updated',0)>60
         s['benchmark'] = read_json(store.state/'benchmark.json',{})
         s['plan'] = dict(revision=store.plan['revision'], cameras=store.plan['cameras'], mode=store.plan['mode'], archive_bytes_per_disk=store.plan['archive_bytes_per_disk'])
+        if store.progress:s['progress']=store.progress.snapshot(s)
         return s
 
     @app.get('/api/scenes')

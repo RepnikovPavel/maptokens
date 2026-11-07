@@ -1,6 +1,8 @@
 import {zoomAt,egoSize,multiply as mul,imageViewMatrix,niceDistance,formatDistance,EGO_LENGTH_M,EGO_WIDTH_M} from './view.js';
 import {Renderer} from './render.js';
 import {LayerVisibility,LAYER_CATEGORIES,layerCategory} from './layers.js';
+import {DownloadMeters} from './progress.js';
+const downloadMeters=new DownloadMeters();
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => `${String(Math.floor(Math.max(0,t)/60)).padStart(2,'0')}:${(Math.max(0,t)%60).toFixed(1).padStart(4,'0')}`;
@@ -189,10 +191,11 @@ async function refresh(){
  const n=list.filter(s=>s.ready).length,total=list.length;
  $('#download-state').textContent=status.stale?'stale':status.running?'running':Object.keys(status.errors||{}).length?'errors':n===total?'done':'stopped';
  $('#dl-speed').textContent=(status.speed_mbps||status.average_mbps||0).toFixed(1);$('#dl-done').textContent=`${status.mode==='full'?(status.scenes_done+status.scenes_skipped):n}/${total}`;
- $('#dl-progress').max=total;$('#dl-progress').value=status.mode==='full'?(status.scenes_done+status.scenes_skipped):n;$('#dl-bytes').textContent=`${((status.network_bytes||0)/1e9).toFixed(2)} GB this run`;
+ downloadMeters.update(status.progress||{downloaded_bytes:0,total_bytes:0,download_percent:0,ready_scenes:n,total_scenes:total,ready_percent:total?100*n/total:0,running:status.running,stale:status.stale,next:null});
+ $('#dl-bytes').textContent=`${((status.network_bytes||0)/1e9).toFixed(2)} GB transferred this run`;
  const active=Object.values(status.active||{});$('#dl-active').textContent=`${active.length} active`;
  const indexing=active.filter(s=>s.phase==='index').length;
- $('#dl-detail').textContent=status.mode==='full'?`Full archives · ${((status.archive_bytes_done||0)/1e9).toFixed(1)}/${((status.archive_bytes_total||0)/1e9).toFixed(1)} GB · ${status.method} · ETA ${status.eta_seconds?(status.eta_seconds/3600).toFixed(1)+' h':'—'}`:`${indexing} indexing tar headers · ${active.length-indexing} transferring data. ${Object.keys(status.errors||{}).length} errors. Transport: ${status.benchmark?.winner||'Python'}.`;
+ $('#dl-detail').textContent=status.mode==='full'?`Archives · ${((status.progress?.downloaded_bytes||status.archive_bytes_done||0)/1e9).toFixed(1)}/${((status.archive_bytes_total||0)/1e9).toFixed(1)} GB · ${status.method} · ETA ~${status.eta_seconds?(status.eta_seconds/3600).toFixed(1)+' h':'—'}`:`${indexing} indexing tar headers · ${active.length-indexing} transferring data. ${Object.keys(status.errors||{}).length} errors. Transport: ${status.benchmark?.winner||'Python'}.`;
  $('#revision').textContent=`REV ${status.plan.revision.slice(0,12)}`;
  const splits=[...new Set(list.map(s=>s.split))].sort();if($('#split').options.length===1)for(const s of splits){const o=new Option(s,s);$('#split').add(o);}
  renderCatalog();
@@ -202,7 +205,7 @@ async function refresh(){
   if(meta.id===sid){const id=selectedFeature===null?null:meta.features[selectedFeature]?.id;meta=updated;visibleCache={};const index=id===null?-1:meta.features.findIndex(f=>f.id===id);selectFeature(index<0?null:index);renderDetails();renderLayerPanels();await setFrame(frame);}
  }
  if(!meta&&n){const params=new URLSearchParams(location.search),id=params.get('scene');if(list.some(s=>s.id===id&&s.ready&&!s.maps))$('#hd-only').checked=false;await choose(list.find(s=>s.id===id&&s.ready)?.id||list.find(s=>s.ready&&s.maps)?.id||list.find(s=>s.ready).id,Number(params.get('frame')||0));}
- }catch(e){$('#download-state').textContent='Server connection interrupted';}
+ }catch(e){$('#download-state').textContent='Server connection interrupted';downloadMeters.disconnect();}
 }
 
 function fitCamera(){
@@ -303,4 +306,4 @@ try{
  mapGL=new Renderer($('#map-canvas'),wasm,[.045,.07,.08,1]);camGL=new Renderer($('#camera-overlay'),wasm);
  $('#render-state').textContent='GPU ready';window.explorerDiagnostics=()=>({wasm:!!wasm,webgl:!!mapGL,scene:meta?.id,frame,renderMs:lastRenderMs,cacheFrames:bufferCache.size,playing,loading,mapSegments:meta?.segments.length,center,scale,follow,followOffset,loopCount,extras:{...extras},selectedFeature:selectedFeature===null?null:{index:selectedFeature,id:meta.features[selectedFeature].id},visible:{camera:meta?visibleSegments('camera').length:0,map:meta?visibleSegments('map').length:0},selectionRender:{camera:camGL?.last?{segments:camGL.last.selectedSegments,points:camGL.last.selectedPoints}:null,map:mapGL?.last?{segments:mapGL.last.selectedSegments,points:mapGL.last.selectedPoints}:null},cameraDrawCount:camGL?.drawCount,pose:poseNow()?.slice(1,4),cameraView:{zoom,pan},egoSizeMeters:[EGO_WIDTH_M,EGO_LENGTH_M],cameraProjection:meta?displayCameraMatrix():null,cameraBuffer:camGL?{width:camGL.gl.drawingBufferWidth,height:camGL.gl.drawingBufferHeight,cssWidth:camGL.canvas.clientWidth,cssHeight:camGL.canvas.clientHeight}:null,posePixels:poseNow()?{x:$('#map-canvas').clientWidth/2+(poseNow()[1]-center[0])*$('#map-canvas').clientHeight/(2*scale),y:$('#map-canvas').clientHeight/2-(poseNow()[2]-center[1])*$('#map-canvas').clientHeight/(2*scale)}:null});
 }catch(e){$('#render-state').textContent='Graphics unavailable';toast(e.message);}
-await refresh();setInterval(refresh,10000);requestAnimationFrame(tick);
+await refresh();setInterval(refresh,5000);requestAnimationFrame(tick);

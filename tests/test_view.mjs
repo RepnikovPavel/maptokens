@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import {drawingBufferSize,zoomAt,egoSize,imageViewMatrix,segmentDistance,niceDistance,formatDistance,EGO_LENGTH_M,EGO_WIDTH_M} from '../src/maptokens/kitscenes/web/view.js';
 import {LayerVisibility,layerCategory} from '../src/maptokens/kitscenes/web/layers.js';
+import {countdown} from '../src/maptokens/kitscenes/web/progress.js';
+
+assert.equal(countdown(1.2),'00:00:02');
+assert.equal(countdown(3661),'01:01:01');
+assert.equal(countdown(90061),'1d 01:01:01');
+assert.equal(countdown(-1),'00:00:00');
 
 // Zoom at the pointer must keep its image coordinate fixed, even after a pan.
 for(const zoom of [1,2,4]){

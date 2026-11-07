@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KITScenes</title><link rel="stylesheet" href="/style.css?v=9"></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KITScenes</title><link rel="stylesheet" href="/style.css?v=10"></head>
 <body>
 <div id="app">
 <div id="toolbar">
@@ -53,16 +53,20 @@
  <span id="duration">00:00.0</span>
  <span class="speed"><b id="speed">—</b> km/h</span>
 </div>
+<div id="download-meters">
+ <div class="download-meter" id="next-trip-meter"><div class="download-caption"><span>Next HD trip</span><span id="next-trip-phase"></span><time id="next-trip-eta" title="Estimated time until a new trip is ready to view">estimating…</time></div><progress id="next-trip-progress" max="100" value="0" aria-label="Next trip download progress"></progress></div>
+ <div class="download-meter"><div class="download-caption"><span>Downloaded</span><span id="dl-volume">—</span><b id="dl-percent">0.00%</b></div><progress id="dl-progress" max="100" value="0" aria-label="Dataset bytes downloaded"></progress></div>
+ <div class="download-meter"><div class="download-caption"><span>Ready</span><span id="dl-ready-count">—</span><b id="dl-ready-percent">0.00%</b></div><progress id="dl-ready-progress" max="1" value="0" aria-label="Dataset scenes fully prepared"></progress></div>
+</div>
 <div id="statusbar">
  <span id="scene-split">—</span><span id="render-state" title="Projection / GPU status">—</span>
  <span class="spacer"></span>
- <button id="download-toggle" title="Download details">↓ <span id="dl-done">0/1006</span></button>
- <progress id="dl-progress" value="0" max="1006"></progress>
+ <button id="download-toggle" title="Download details">↓ <span id="dl-done">—</span></button>
  <span><span id="dl-speed">0</span> MB/s</span><span id="download-state">connecting</span>
 </div>
 <div id="download-popover" hidden><div id="dl-bytes"></div><div id="dl-active"></div><div id="dl-detail"></div><div id="revision"></div></div>
 </div>
 <div id="toast" role="status"></div>
 <dialog id="help-dialog"><b>Controls</b><p>Space: play/pause · ←/→: frame · Home/End: first/last<br>Map: click line → select · ruler → two points · drag / wheel · double-click: follow<br>Camera: click line → select · drag / wheel · double-click: reset</p><button id="close-help">close</button></dialog>
-<script type="module" src="/app.js?v=9"></script>
+<script type="module" src="/app.js?v=10"></script>
 </body></html>
