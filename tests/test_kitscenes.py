@@ -159,6 +159,45 @@ def test_full_mirror_native_resume_sha_and_archive_retention(tmp_path,range_serv
     mirror=Mirror(state,method,1);mirror.run();assert mirror.skipped==1
 
 
+def test_hd_only_plan_filters_publisher_withheld_splits(tmp_path,monkeypatch):
+    from maptokens.kitscenes.download import build_plan
+    rows=['sequence_id,split,archive_path,archive_sha256,archive_size_bytes']
+    for i,split in enumerate(('train','val','overlap_train_val','test','test-e2e')):
+        rows.append(f'{i},{split},data/{split}/{i}.tar,abc,{1000+i}')
+    class Reply:
+        text='\n'.join(rows)
+        def raise_for_status(self):pass
+        def json(self):return {'sha':'pinned'}
+    class Session:
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def get(self,*args,**kwargs):return Reply()
+    monkeypatch.setattr('maptokens.kitscenes.download.session',Session)
+    args=SimpleNamespace(state=str(tmp_path/'state'),roots=[str(tmp_path/'a'),str(tmp_path/'b')],revision='main',splits=[],scenes=[],limit=None,cameras=['camera_ring_front'],no_metadata=False,include=[],exclude=[],mode='full',hd_only=True)
+    build_plan(args)
+    plan=json.loads((tmp_path/'state/plan.json').read_text())
+    assert plan['hd_only']
+    assert {r['split'] for r in plan['scenes']}=={'train','val','overlap_train_val'}
+    assert sum(plan['archive_bytes_per_disk'])==3003
+
+
+def test_hd_only_mirror_rejects_withheld_splits_and_missing_maps(tmp_path,range_server,monkeypatch):
+    from maptokens.kitscenes.mirror import Mirror
+    url,payload,requests,_=range_server
+    root=tmp_path/'disk';state=tmp_path/'state'
+    row=dict(sequence_id=SID,split='test-e2e',size=len(payload),disk=0,archive_path=f'data/test-e2e/{SID}.tar',archive_sha256=hashlib.sha256(payload).hexdigest())
+    plan=dict(roots=[str(root)],scenes=[row],cameras=['camera_ring_front'],metadata=True,include=[],exclude=[],revision='test',mode='full',hd_only=True,archive_bytes_per_disk=[len(payload)])
+    atomic_json(state/'plan.json',plan)
+    with pytest.raises(ValueError,match='published-map splits'):Mirror(state,'wget',1)
+    row.update(split='val',archive_path=f'data/val/{SID}.tar')
+    atomic_json(state/'plan.json',plan)
+    archive=root/row['archive_path'];archive.parent.mkdir(parents=True);archive.write_bytes(payload)
+    # This archive has an empty OSM and no origin. It must not become ready.
+    with pytest.raises(RuntimeError):Mirror(state,'wget',1).run()
+    assert archive.exists() and not (archive.with_suffix('')/'.complete.json').exists()
+    assert not requests
+
+
 def test_map_projection_origin_and_feature_identity(tmp_path):
     import numpy as np
     from pyproj import Transformer
@@ -171,6 +210,8 @@ def test_map_projection_origin_and_feature_identity(tmp_path):
     assert .9<segments[0][4]<1.2
     assert features[segments[0][7]]['id']=='3'
     assert groups==['line_thin:solid']
+    from maptokens.kitscenes.mirror import Mirror
+    Mirror.check_map(tmp_path)
 
 
 def test_exact_source_timestamp_and_motion(tmp_path):

@@ -11,9 +11,10 @@ import subprocess
 import tarfile
 import threading
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from .download import atomic_json, safe_relative, selected, _hash_file
+from .download import HD_MAP_SPLITS, atomic_json, safe_relative, selected, _hash_file
 from .transport import REPO, session, token, resolve_url
 
 
@@ -35,6 +36,9 @@ class Mirror:
     def __init__(self,state,method='wget',jobs=8,preview_scenes_per_split=2):
         self.state=Path(state)
         self.plan=json.loads((self.state/'plan.json').read_text())
+        if self.plan.get('hd_only'):
+            if not self.plan['metadata'] or any(r['split'] not in HD_MAP_SPLITS for r in self.plan['scenes']):
+                raise ValueError('HD-only plans require published-map splits and metadata extraction')
         self.method,self.jobs=method,jobs
         self.preview_scenes_per_split=preview_scenes_per_split
         self.lock=threading.Lock()
@@ -95,7 +99,12 @@ class Mirror:
             fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
             pending=[]
             for row in self.plan['scenes']:
-                if self.verified(row) and self.archive(row).with_suffix('').joinpath('.complete.json').exists():
+                out=self.archive(row).with_suffix('')
+                complete=self.verified(row) and (out/'.complete.json').exists()
+                if complete and self.plan.get('hd_only'):
+                    try:self.check_map(out)
+                    except (OSError,ValueError,ET.ParseError):complete=False
+                if complete:
                     self.skipped+=1;self.completed_bytes+=row['size']
                 else:pending.append(row)
             pending=download_order(self.plan['scenes'],pending,self.preview_scenes_per_split)
@@ -197,7 +206,12 @@ class Mirror:
 
     def extract(self,row,archive):
         out=archive.with_suffix('');marker=out/'.complete.json'
-        if marker.exists():return
+        if marker.exists():
+            if not self.plan.get('hd_only'):return
+            try:
+                self.check_map(out)
+                return
+            except (OSError,ValueError,ET.ParseError):pass
         out.mkdir(parents=True,exist_ok=True);inventory=[];count=retained=0
         with tarfile.open(archive,mode='r:') as tf:
             for m in tf:
@@ -209,6 +223,16 @@ class Mirror:
                     dst=out/path;dst.parent.mkdir(parents=True,exist_ok=True);part=dst.with_name(dst.name+'.part')
                     with tf.extractfile(m) as src,part.open('wb') as f:shutil.copyfileobj(src,f)
                     os.replace(part,dst);count+=1;retained+=m.size
+        if self.plan.get('hd_only'):self.check_map(out)
         atomic_json(marker,dict(scene=row['sequence_id'],split=row['split'],mode='full',revision=self.plan['revision'],
                     archive_sha256=row['archive_sha256'],archive_bytes=row['size'],retained_bytes=retained,
                     files=count,inventory=inventory,finished=time.time()))
+
+    @staticmethod
+    def check_map(out):
+        root=ET.parse(out/'maps/map.osm').getroot()
+        if not root.findall('node') or not root.findall('way'):
+            raise ValueError('Expected a nonempty HD map')
+        origin=json.loads((out/'maps/origin.json').read_text())
+        if not all(isinstance(origin.get(key),(int,float)) for key in ('latitude','longitude')):
+            raise ValueError('Expected a geographic HD map origin')

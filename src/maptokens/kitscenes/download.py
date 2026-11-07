@@ -16,6 +16,7 @@ from pathlib import Path, PurePosixPath
 
 from .transport import REPO, RemoteTar, resolve_url, session
 
+HD_MAP_SPLITS = ('train', 'val', 'overlap_train_val')
 
 def atomic_json(path, data):
     path = Path(path)
@@ -63,6 +64,9 @@ class TarFileView(io.RawIOBase):
 
 
 def build_plan(args):
+    hd_only = getattr(args, 'hd_only', False)
+    if hd_only and args.no_metadata:
+        raise ValueError('HD-only plans require metadata extraction')
     state = Path(args.state)
     state.mkdir(parents=True, exist_ok=True)
     if (state / "plan.json").exists():
@@ -82,6 +86,8 @@ def build_plan(args):
     (state / "sequence_archives.csv").write_text(manifest)
     rows = list(csv.DictReader(io.StringIO(manifest)))
     rows = [r for r in rows if (not args.splits or r['split'] in args.splits) and (not args.scenes or r['sequence_id'] in args.scenes)]
+    if hd_only:
+        rows = [r for r in rows if r['split'] in HD_MAP_SPLITS]
     if args.limit:
         rows = sorted(rows, key=lambda r: int(r['archive_size_bytes']))[:args.limit]
     if not rows:
@@ -95,7 +101,7 @@ def build_plan(args):
         loads[row['disk']] += row['size']
     plan = dict(version=1, repo=REPO, revision=revision, roots=roots, cameras=args.cameras,
                 metadata=not args.no_metadata, include=args.include, exclude=args.exclude,
-                mode=args.mode, scenes=rows, archive_bytes_per_disk=loads, created=time.time())
+                mode=args.mode, hd_only=hd_only, scenes=rows, archive_bytes_per_disk=loads, created=time.time())
     atomic_json(state / "plan.json", plan)
     print(json.dumps(dict(scenes=len(rows), archive_gb=sum(loads)/1e9, cameras=args.cameras, roots=roots, mode=args.mode, revision=revision), indent=2))
 

@@ -12,6 +12,7 @@ def main():
     plan.add_argument('--roots', nargs='+', required=True)
     plan.add_argument('--revision', default='main')
     plan.add_argument('--splits', nargs='*')
+    plan.add_argument('--hd-only', action='store_true', help='Only splits with published HD maps: train, val, overlap_train_val')
     plan.add_argument('--scenes', nargs='*')
     plan.add_argument('--cameras', nargs='*', default=['camera_ring_front'])
     plan.add_argument('--no-metadata', action='store_true')

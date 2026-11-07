@@ -19,17 +19,19 @@ Accept the [dataset terms](https://huggingface.co/datasets/KIT-MRT/KITScenes-Mul
 
 Dataset terms and access are separate from this project's software license. The authoritative schema and dataset documentation are maintained by [KIT-MRT](https://github.com/KIT-MRT/kitscenes).
 
-## Full dataset mirror (current deployment mode)
+## HD-map dataset mirror (current deployment mode)
 
 ```sh
 kitscenes plan --state /storage/kitscenes-full \
-  --roots /mnt/hdd1/kitscenes /mnt/hdd2/kitscenes --mode full
+  --roots /mnt/hdd1/kitscenes /mnt/hdd2/kitscenes --mode full --hd-only
 kitscenes run --state /storage/kitscenes-full --method wget --jobs 16
 ```
 
-Every original archive is retained, including every camera, LiDAR, radar and all published annotations. The pinned 1006-archive manifest is about 4.576 TB. LPT placement assigns about 2.288 TB to each HDD (the planned difference is 23 MB). There is no remote tar indexing in full mode. Native wget/curl byte resume and HF's native full-file download are supported (`--method hf`). The default full-mode transport is wget. The two smallest scenes from each of train/val are scheduled first for map review; the remaining archives follow largest-first order. Set `--preview-scenes-per-split 0` for largest-first order throughout. Resumes keep the same review set and retain every partial archive. Verification uses the publisher's full-archive SHA256; successful checks have durable receipts. Existing completed archives are reused.
+The deployed plan selects only splits with published HD maps: `train`, `val`, and `overlap_train_val`. At pinned revision `d6e8ee0fccd016d4e7815a52be00d26c0f1785ce`, these contain **673 scenes** (533 + 117 + 23), totaling **3,213,310,238,720 archive bytes** (3.213 TB). Existing archives and partial downloads retain their disks; the remaining archives are balanced across both HDDs, at about 1.607 TB each. Every selected original archive is retained, including every camera, LiDAR, radar and all published annotations. There is no remote tar indexing in full mode. Native wget/curl byte resume and HF's native full-file download are supported (`--method hf`). The default full-mode transport is wget. The two smallest scenes from each of train/val are scheduled first for map review; the remaining archives follow largest-first order. Set `--preview-scenes-per-split 0` for largest-first order throughout. Resumes keep the same review set and retain every partial archive. Verification uses the publisher's full-archive SHA256; successful checks have durable receipts. Existing completed archives are reused.
 
-Only the front camera and metadata are additionally extracted for browsing, avoiding a second full dataset copy. Other modalities remain available in the original tars. Full download progress includes transferred bytes, recent/average MB/s, remaining-time estimate, per-archive phase, errors and available disk space. A failed run can resume the same plan without downloading verified archives again.
+Only the front camera and metadata are additionally extracted for browsing, avoiding a second full dataset copy. HD-only downloads check for a nonempty map and a geographic map origin before marking extraction complete. Other modalities remain available in the original tars. Full download progress includes transferred bytes, recent/average MB/s, remaining-time estimate, per-archive phase, errors and available disk space. A failed run can resume the same plan without downloading verified archives again.
+
+The authors explicitly withhold maps from `test` and maps/global poses/future data from `test-e2e`; see [Appendix G.1 and Table 11](https://arxiv.org/html/2606.02956v1). These 333 scenes are excluded from the deployed download plan. The advertised 62 km² describes the annotated dataset coverage, including held-out evaluation regions. Omit `--hd-only` only when those sensor-only splits are wanted.
 
 ## Selective downloads (optional)
 
@@ -48,7 +50,8 @@ Other options at planning time:
 
 | Option | Effect |
 | --- | --- |
-| `--splits train val` | Restrict dataset splits; omitted means every published split |
+| `--splits train val` | Restrict dataset splits; omitted means every published split unless `--hd-only` is set |
+| `--hd-only` | Restrict to `train`, `val`, `overlap_train_val`, which publish HD maps; requires metadata extraction |
 | `--scenes UUID UUID` | Restrict scene IDs |
 | `--limit 2` | Select the two smallest matching archives for a smoke run |
 | `--cameras camera_base_front_center` | Choose the other forward camera instead |
@@ -79,7 +82,7 @@ export DATA_B=/mnt/hdd2/kitscenes
 export STATE_DIR=/persistent/location/kitscenes-state
 export HF_TOKEN_FILE=/private/location/hf_token
 export PORT=8795 JOBS=16
-./scripts/run-server.sh --mode full
+./scripts/run-server.sh --mode full --hd-only
 ```
 
 The script builds the image and creates two containers: `kitscenes-download` (restart on failure) and `kitscenes-web` (restart unless stopped). It mounts both HDD directories and durable state. The browser service receives read-only dataset/state mounts. `PREVIEW_SCENES_PER_SPLIT` configures the initial review set (default 2). Open `http://SERVER_LAN_IP:8795` from your workstation. Deployment paths and hostnames are parameters; no personal server configuration is embedded in the source.
