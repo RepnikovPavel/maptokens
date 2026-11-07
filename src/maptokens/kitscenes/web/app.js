@@ -62,13 +62,15 @@ function draw(){
   }
   if(extras.rings&&p){
    const ring=addColor([.43,.61,.72,.48]),step=10,diagonal=Math.hypot(scale,scale*w/h),offset=Math.hypot(center[0]-p[1],center[1]-p[2]);
+   const orientation=rotation(p.slice(4,8)),north=follow?Math.atan2(orientation[3],orientation[0]):Math.PI/2;
+   const directions=[['north',north],['east',north-Math.PI/2],['south',north+Math.PI],['west',north+Math.PI/2]];
    const start=Math.max(step,Math.ceil((offset-diagonal)/step)*step),limit=offset+diagonal;
    for(let r=start;r<=limit;r+=step){
     const count=Math.max(64,Math.min(512,Math.ceil(Math.PI*Math.sqrt(Math.max(1,r*pixels)/.2))));
     for(let i=0;i<count;i++){const a=i/count*Math.PI*2,b=(i+1)/count*Math.PI*2;sg.push([p[1]+r*Math.cos(a),p[2]+r*Math.sin(a),0,p[1]+r*Math.cos(b),p[2]+r*Math.sin(b),0,ring]);}
-    for(const a of [Math.PI/2,0,Math.PI,Math.PI*1.5,Math.PI/4,Math.PI*3/4,Math.PI*5/4,Math.PI*7/4]){
+    for(const [direction,a] of directions){
      const [x,y]=mapPoint([p[1]+r*Math.cos(a),p[2]+r*Math.sin(a)]);
-     if(x>35&&x<w-35&&y>65&&y<h-32){labels.push(`<span style="left:${x}px;top:${y}px">${formatDistance(r)}</span>`);break;}
+     if(x>35&&x<w-35&&y>65&&y<h-32)labels.push(`<span data-direction="${direction}" data-distance="${r}" style="left:${x}px;top:${y}px">${formatDistance(r)}</span>`);
     }
    }
   }
