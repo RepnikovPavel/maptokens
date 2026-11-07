@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KITScenes</title><link rel="stylesheet" href="/style.css?v=2"></head>
+<body>
+<div id="app">
+<div id="toolbar">
+ <b class="logo">KITScenes</b>
+ <select id="split" title="Split"><option value="">all splits</option></select>
+ <input id="search" placeholder="scene ID" aria-label="Filter scene IDs">
+ <select id="scene-select" aria-label="Scene"><option>No downloaded scenes</option></select>
+ <button id="prev-scene" title="Previous scene">◂</button><button id="next-scene" title="Next scene">▸</button>
+ <label title="Show downloaded scenes only"><input id="ready-only" type="checkbox" checked>ready</label>
+ <span id="ready-count" class="muted">0/1006</span>
+ <span class="spacer"></span>
+ <label><input id="overlay-toggle" type="checkbox" checked>map→cam</label>
+ <button id="metadata-toggle" title="Metadata, layers, calibration, files">meta</button>
+ <button id="copy-link" title="Copy scene and frame URL">link</button>
+ <button id="help" title="Keyboard shortcuts">?</button>
+</div>
+<div class="workspace">
+ <div class="camera-viewport" id="camera-viewport">
+  <div id="camera-stage"><img id="camera-image" alt="Front camera" draggable="false" hidden><canvas id="camera-overlay"></canvas></div>
+  <div id="camera-empty">Indexing scenes…</div>
+  <div class="pane-label"><span id="camera-name">camera_ring_front</span><button id="fullscreen" title="Fullscreen">⛶</button></div>
+  <div class="camera-stamp" id="frame-stamp">—</div>
+ </div>
+ <div class="map-viewport">
+  <canvas id="map-canvas" aria-label="HD map; drag to pan, scroll to zoom"></canvas>
+  <div class="pane-label">HD map <span class="spacer"></span><button id="follow" class="active">follow</button><button id="reset-map" title="Reset">↺</button></div>
+  <div class="north">N ↑</div><div class="map-scale" id="map-scale">—</div>
+  <div class="map-controls"><button id="zoom-in" title="Zoom in">+</button><button id="zoom-out" title="Zoom out">−</button></div>
+ </div>
+ <aside id="inspector" hidden>
+  <div id="scene-title">Scene</div><div id="scene-subtitle" class="muted"></div>
+  <div class="tabs"><button data-tab="overview" class="active">meta</button><button data-tab="layers">layers</button><button data-tab="calibration">calib</button><button data-tab="files">files</button></div>
+  <div id="detail-body"></div>
+ </aside>
+</div>
+<div class="transport">
+ <button id="prev" title="Previous frame (←)">◂</button><button id="play" title="Play / pause (Space)">▶</button><button id="next" title="Next frame (→)">▸</button>
+ <span id="frame-counter">0/0</span>
+ <select id="rate" title="Playback speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select>
+ <span id="elapsed">00:00.0</span>
+ <div class="timeline"><canvas id="speed-chart" title="Ego speed"></canvas><input type="range" id="scrub" min="0" max="0" value="0" aria-label="Frame"></div>
+ <span id="duration">00:00.0</span>
+ <span class="speed"><b id="speed">—</b> km/h</span>
+</div>
+<div id="statusbar">
+ <span id="scene-split">—</span><span id="render-state" title="Projection / GPU status">—</span>
+ <span class="spacer"></span>
+ <button id="download-toggle" title="Download details">↓ <span id="dl-done">0/1006</span></button>
+ <progress id="dl-progress" value="0" max="1006"></progress>
+ <span><span id="dl-speed">0</span> MB/s</span><span id="download-state">connecting</span>
+</div>
+<div id="download-popover" hidden><div id="dl-bytes"></div><div id="dl-active"></div><div id="dl-detail"></div><div id="revision"></div></div>
+</div>
+<div id="toast" role="status"></div>
+<dialog id="help-dialog"><b>Controls</b><p>Space: play/pause · ←/→: frame · Home/End: first/last<br>Map: drag / wheel · double-click: follow<br>Camera: drag / wheel · double-click: reset</p><button id="close-help">close</button></dialog>
+<script type="module" src="/app.js?v=2"></script>
+</body></html>
